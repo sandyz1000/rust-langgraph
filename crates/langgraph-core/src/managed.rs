@@ -1,7 +1,6 @@
 //! Managed values for special state handling in LangGraph
 
-use crate::errors::{GraphResult, LangGraphError};
-use crate::types::GraphState;
+use crate::errors::GraphResult;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -43,8 +42,6 @@ pub struct ConversationMemory {
     messages: Arc<RwLock<Vec<Message>>>,
     /// Maximum message count
     max_messages: Option<usize>,
-    /// Memory configuration
-    config: MemoryConfig,
 }
 
 /// Message in conversation memory
@@ -97,7 +94,6 @@ impl ConversationMemory {
         Self {
             messages: Arc::new(RwLock::new(Vec::new())),
             max_messages: config.max_messages,
-            config,
         }
     }
 
@@ -385,7 +381,7 @@ pub struct ManagedValueManager {
 }
 
 /// Trait object for managed values
-trait ManagedValueTrait: Send + Sync {
+pub trait ManagedValueTrait: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
     fn type_name(&self) -> &'static str;
 }

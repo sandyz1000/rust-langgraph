@@ -1,13 +1,11 @@
 //! Channel system for inter-node communication
 
-use crate::errors::{GraphResult, LangGraphError};
-use crate::types::GraphState;
+use crate::errors::GraphResult;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, watch, RwLock};
-use uuid::Uuid;
+use tokio::sync::{broadcast, RwLock};
 
 /// Trait for communication channels between nodes
 #[async_trait]

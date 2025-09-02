@@ -2,12 +2,12 @@
 
 use crate::runtime::{LangGraphRuntime, RuntimeConfig};
 use langgraph_checkpoint::Checkpointer;
+#[cfg(test)]
+use langgraph_core::ExecutionContext;
 use langgraph_core::{
-    CompiledGraph, ExecutionContext, GraphConfig, GraphResult, GraphState, LangGraphError,
-    StreamEvent, StreamMode,
+    CompiledGraph, GraphConfig, GraphResult, GraphState, LangGraphError, StreamEvent,
 };
 use std::sync::Arc;
-use tokio::time::Instant;
 
 /// Enhanced executor with runtime management
 pub struct RuntimeExecutor<T>
@@ -59,24 +59,23 @@ where
         initial_state: T,
         config: GraphConfig,
     ) -> GraphResult<T> {
-        // Temporary implementation - return error until properly implemented
-        Err(LangGraphError::runtime(
-            "Runtime executor not fully implemented".to_string(),
-        ))
+        let start_time = std::time::Instant::now();
+
+        // Execute the graph using the compiled graph's invoke method
+        let result = self.graph.invoke_with_config(initial_state, config).await;
+
+        let execution_time = start_time.elapsed();
+        let success = result.is_ok();
+
+        // Record execution metrics
+        // For now, we'll use an empty nodes list since we don't track individual node execution here
+        self.runtime
+            .record_execution(success, execution_time, vec![])
+            .await?;
+
+        result
     }
 
-    /// Execute with checkpointing support
-    async fn execute_with_checkpointing(
-        &self,
-        _initial_state: T,
-        _context: ExecutionContext,
-        _checkpointer: Arc<dyn Checkpointer<T>>,
-    ) -> GraphResult<T> {
-        // Temporary implementation - return error until properly implemented
-        Err(LangGraphError::runtime(
-            "Checkpointing executor not fully implemented".to_string(),
-        ))
-    }
     /// Stream execution with runtime tracking
     pub async fn stream(
         &self,

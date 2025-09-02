@@ -142,17 +142,15 @@ impl Tool for ShellTool {
 }
 
 /// Web search tool (mock implementation)
-pub struct WebSearchTool {
-    api_key: Option<String>,
-}
+pub struct WebSearchTool;
 
 impl WebSearchTool {
     pub fn new() -> Self {
-        Self { api_key: None }
+        Self
     }
     
-    pub fn with_api_key(api_key: String) -> Self {
-        Self { api_key: Some(api_key) }
+    pub fn with_api_key(_api_key: String) -> Self {
+        Self
     }
 }
 

@@ -27,8 +27,6 @@ pub struct InMemoryCheckpointer {
 struct CheckpointData {
     /// Serialized checkpoint
     checkpoint_json: String,
-    /// Checkpoint metadata
-    metadata: CheckpointMetadata,
     /// Pending writes
     pending_writes: Vec<PendingWrite>,
     /// Storage timestamp
@@ -234,7 +232,7 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
         &self,
         config: &CheckpointConfig,
         checkpoint: Checkpoint<S>,
-        metadata: CheckpointMetadata,
+        _metadata: CheckpointMetadata,
     ) -> GraphResult<()> {
         // Serialize checkpoint
         let checkpoint_json = serde_json::to_string(&checkpoint)
@@ -244,7 +242,6 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
 
         let checkpoint_data = CheckpointData {
             checkpoint_json,
-            metadata,
             pending_writes: Vec::new(),
             stored_at: Utc::now(),
             size_bytes,
@@ -307,7 +304,7 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
             }
         }
 
-        if let Some((checkpoint_id, data)) = latest_entry {
+        if let Some((_checkpoint_id, data)) = latest_entry {
             // Deserialize the checkpoint data
             let checkpoint: Checkpoint<S> =
                 serde_json::from_str(&data.checkpoint_json).map_err(|e| {
@@ -357,7 +354,7 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
 
         // Convert to CheckpointTuple objects
         let mut result = Vec::new();
-        for (checkpoint_id, data) in entries {
+        for (_checkpoint_id, data) in entries {
             let checkpoint: Checkpoint<S> =
                 serde_json::from_str(&data.checkpoint_json).map_err(|e| {
                     LangGraphError::runtime(format!("Failed to deserialize checkpoint: {}", e))

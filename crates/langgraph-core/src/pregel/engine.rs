@@ -1,26 +1,27 @@
 //! Core Pregel execution engine implementation
 
 use crate::channels::ChannelManager;
-use crate::constants::{START, END, MAX_RECURSION_DEPTH};
+use crate::constants::{END, MAX_RECURSION_DEPTH};
 use crate::errors::{GraphResult, LangGraphError};
 use crate::graph::CompiledGraph;
-use crate::pregel::{PregelTask, TaskScheduler, TaskStatus, TaskResult};
+use crate::pregel::{PregelTask, TaskScheduler, TaskStatus};
 use crate::types::{
-    ExecutionContext, GraphConfig, GraphState, StateSnapshot, StreamEvent, StreamEventData,
-    StreamEventType, StreamMode, ExecutionStats, MemoryStats,
+    ExecutionContext, ExecutionStats, GraphConfig, GraphState, MemoryStats, StateSnapshot,
+    StreamEvent, StreamEventData, StreamEventType,
 };
 use chrono::Utc;
 use dashmap::DashMap;
 use std::collections::HashMap;
-use std::sync::{Arc, atomic::{AtomicU32, Ordering}};
-use tokio::sync::{RwLock, mpsc, broadcast};
-use tokio_stream::{Stream, wrappers::ReceiverStream};
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
+use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 use uuid::Uuid;
 
 /// Pregel execution engine for graph computation
 pub struct PregelEngine<S: GraphState> {
-    /// Channel manager for inter-node communication
-    channel_manager: ChannelManager,
     /// Task scheduler
     scheduler: TaskScheduler<S>,
     /// Active executions
@@ -33,14 +34,10 @@ pub struct PregelEngine<S: GraphState> {
 
 /// State of an active execution
 struct ExecutionState<S: GraphState> {
-    /// Execution ID
-    execution_id: String,
     /// Current state
     current_state: Arc<RwLock<S>>,
     /// Current step
     step: AtomicU32,
-    /// Active tasks
-    active_tasks: Arc<DashMap<String, PregelTask<S>>>,
     /// Execution context
     context: ExecutionContext,
     /// Configuration
@@ -51,9 +48,8 @@ struct ExecutionState<S: GraphState> {
 
 impl<S: GraphState> PregelEngine<S> {
     /// Create a new Pregel engine
-    pub fn new(channel_manager: ChannelManager) -> Self {
+    pub fn new(_channel_manager: ChannelManager) -> Self {
         Self {
-            channel_manager,
             scheduler: TaskScheduler::new(),
             executions: Arc::new(DashMap::new()),
             snapshots: Arc::new(DashMap::new()),
@@ -76,8 +72,11 @@ impl<S: GraphState> PregelEngine<S> {
         config: GraphConfig,
     ) -> GraphResult<impl Stream<Item = StreamEvent<S>> + '_> {
         let execution_id = Uuid::new_v4().to_string();
-        let thread_id = config.thread_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
-        
+        let thread_id = config
+            .thread_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+
         // Create execution context
         let mut context = ExecutionContext::new("__start__", "graph");
         context.execution_id = Uuid::parse_str(&execution_id).unwrap();
@@ -90,17 +89,16 @@ impl<S: GraphState> PregelEngine<S> {
 
         // Create execution state
         let execution_state = ExecutionState {
-            execution_id: execution_id.clone(),
             current_state: Arc::new(RwLock::new(input.clone())),
             step: AtomicU32::new(0),
-            active_tasks: Arc::new(DashMap::new()),
             context,
             config: config.clone(),
             event_sender: event_sender.clone(),
         };
 
         // Store execution state
-        self.executions.insert(execution_id.clone(), execution_state);
+        self.executions
+            .insert(execution_id.clone(), execution_state);
 
         // Create initial snapshot
         let initial_snapshot = StateSnapshot {
@@ -133,7 +131,7 @@ impl<S: GraphState> PregelEngine<S> {
 
         // Convert broadcast receiver to stream
         let stream = ReceiverStream::new(self.convert_broadcast_to_receiver(event_receiver).await);
-        
+
         Ok(stream)
     }
 
@@ -143,7 +141,7 @@ impl<S: GraphState> PregelEngine<S> {
         mut broadcast_rx: broadcast::Receiver<StreamEvent<S>>,
     ) -> mpsc::Receiver<StreamEvent<S>> {
         let (tx, rx) = mpsc::channel(1000);
-        
+
         tokio::spawn(async move {
             while let Ok(event) = broadcast_rx.recv().await {
                 if tx.send(event).await.is_err() {
@@ -151,17 +149,15 @@ impl<S: GraphState> PregelEngine<S> {
                 }
             }
         });
-        
+
         rx
     }
 
     /// Execute the graph logic
-    async fn execute_graph(
-        &self,
-        graph: &CompiledGraph<S>,
-        execution_id: &str,
-    ) -> GraphResult<()> {
-        let execution = self.executions.get(execution_id)
+    async fn execute_graph(&self, graph: &CompiledGraph<S>, execution_id: &str) -> GraphResult<()> {
+        let execution = self
+            .executions
+            .get(execution_id)
             .ok_or_else(|| LangGraphError::runtime("Execution not found"))?;
 
         let mut current_nodes = graph.entry_points.clone();
@@ -173,16 +169,20 @@ impl<S: GraphState> PregelEngine<S> {
 
             // Check for interrupts
             if self.should_interrupt_before(&execution.config, &current_nodes) {
-                self.send_interrupt_event(&execution, &current_nodes, "before").await?;
+                self.send_interrupt_event(&execution, &current_nodes, "before")
+                    .await?;
                 break;
             }
 
             // Execute current nodes
-            let next_nodes = self.execute_step(graph, execution_id, &current_nodes).await?;
+            let next_nodes = self
+                .execute_step(graph, execution_id, &current_nodes)
+                .await?;
 
             // Check for interrupts after
             if self.should_interrupt_after(&execution.config, &current_nodes) {
-                self.send_interrupt_event(&execution, &current_nodes, "after").await?;
+                self.send_interrupt_event(&execution, &current_nodes, "after")
+                    .await?;
                 break;
             }
 
@@ -190,7 +190,10 @@ impl<S: GraphState> PregelEngine<S> {
             current_nodes = next_nodes;
 
             // Check if we've reached finish points
-            if current_nodes.iter().any(|node| graph.finish_points.contains(node) || node == END) {
+            if current_nodes
+                .iter()
+                .any(|node| graph.finish_points.contains(node) || node == END)
+            {
                 break;
             }
 
@@ -232,7 +235,9 @@ impl<S: GraphState> PregelEngine<S> {
         execution_id: &str,
         current_nodes: &[String],
     ) -> GraphResult<Vec<String>> {
-        let execution = self.executions.get(execution_id)
+        let execution = self
+            .executions
+            .get(execution_id)
             .ok_or_else(|| LangGraphError::runtime("Execution not found"))?;
 
         let mut next_nodes = Vec::new();
@@ -287,7 +292,9 @@ impl<S: GraphState> PregelEngine<S> {
                         let _ = execution.event_sender.send(update_event);
 
                         // Determine next nodes
-                        let next = self.get_next_nodes(graph, &result.node_name, &new_state).await?;
+                        let next = self
+                            .get_next_nodes(graph, &result.node_name, &new_state)
+                            .await?;
                         next_nodes.extend(next);
                     }
 
@@ -366,7 +373,9 @@ impl<S: GraphState> PregelEngine<S> {
         if config.interrupt_before.is_empty() {
             return false;
         }
-        nodes.iter().any(|node| config.interrupt_before.contains(node))
+        nodes
+            .iter()
+            .any(|node| config.interrupt_before.contains(node))
     }
 
     /// Check if should interrupt after nodes
@@ -374,7 +383,9 @@ impl<S: GraphState> PregelEngine<S> {
         if config.interrupt_after.is_empty() {
             return false;
         }
-        nodes.iter().any(|node| config.interrupt_after.contains(node))
+        nodes
+            .iter()
+            .any(|node| config.interrupt_after.contains(node))
     }
 
     /// Send interrupt event
@@ -399,11 +410,7 @@ impl<S: GraphState> PregelEngine<S> {
     }
 
     /// Create a checkpoint
-    async fn create_checkpoint(
-        &self,
-        execution: &ExecutionState<S>,
-        step: u32,
-    ) -> GraphResult<()> {
+    async fn create_checkpoint(&self, execution: &ExecutionState<S>, step: u32) -> GraphResult<()> {
         let state = {
             let state = execution.current_state.read().await;
             state.clone()

@@ -1,20 +1,16 @@
 //! Graph definition and execution engine
 
-use crate::channels::{ChannelManager, LastValueChannel, ChannelSpec, ChannelType};
-use crate::constants::{START, END, MAX_RECURSION_DEPTH};
+use crate::channels::{ChannelManager, ChannelSpec, ChannelType, LastValueChannel};
+use crate::constants::{END, START};
 use crate::errors::{GraphResult, LangGraphError};
 use crate::pregel::PregelEngine;
 use crate::types::{
     BranchSpec, EdgeSpec, ExecutionContext, GraphConfig, GraphState, NodeFunction, NodeSpec,
-    StateSnapshot, StreamEvent, StreamEventData, StreamEventType, StreamMode,
+    StateSnapshot, StreamEvent,
 };
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio_stream::{Stream, StreamExt};
-use uuid::Uuid;
+use serde::Serialize;
+use std::collections::HashMap;
+use tokio_stream::Stream;
 
 /// State graph builder for creating computational graphs
 pub struct StateGraph<S: GraphState> {
@@ -98,6 +94,11 @@ impl<S: GraphState> StateGraph<S> {
             return Err(LangGraphError::node_not_found(&to));
         }
 
+        // If the edge starts from START, automatically add the target as an entry point
+        if from == START && to != END && !self.entry_points.contains(&to) {
+            self.entry_points.push(to.clone());
+        }
+
         self.edges.push(EdgeSpec {
             from,
             to,
@@ -136,16 +137,22 @@ impl<S: GraphState> StateGraph<S> {
             }
         }
 
+        // If the conditional edge starts from START, add all non-END targets as entry points
+        if from == START {
+            for target in &targets {
+                if target != END && !self.entry_points.contains(target) {
+                    self.entry_points.push(target.clone());
+                }
+            }
+        }
+
         let branch_spec = BranchSpec::new(condition, targets);
         self.branches.insert(from, branch_spec);
         Ok(self)
     }
 
     /// Add a sequence of nodes with automatic edges
-    pub fn add_sequence<F>(
-        &mut self,
-        sequence: Vec<(String, F)>,
-    ) -> GraphResult<&mut Self>
+    pub fn add_sequence<F>(&mut self, sequence: Vec<(String, F)>) -> GraphResult<&mut Self>
     where
         F: NodeFunction<S> + 'static,
     {
@@ -156,13 +163,13 @@ impl<S: GraphState> StateGraph<S> {
         let mut prev_node = None;
         for (name, function) in sequence {
             self.add_node(name.clone(), function)?;
-            
+
             if let Some(prev) = prev_node {
                 self.add_edge(prev, name.clone())?;
             }
             prev_node = Some(name);
         }
-        
+
         Ok(self)
     }
 
@@ -253,11 +260,7 @@ impl<S: GraphState> StateGraph<S> {
     }
 
     /// Set graph metadata
-    pub fn set_metadata<T>(
-        &mut self,
-        key: impl Into<String>,
-        value: T,
-    ) -> GraphResult<&mut Self>
+    pub fn set_metadata<T>(&mut self, key: impl Into<String>, value: T) -> GraphResult<&mut Self>
     where
         T: Serialize,
     {
@@ -282,8 +285,8 @@ impl<S: GraphState> StateGraph<S> {
             ));
         }
 
-        // Check for cycles (simplified check)
-        self.check_cycles()?;
+        // Note: Cycles are allowed in LangGraph for agent workflows
+        // They represent valid patterns like reasoning -> tool_execution -> reasoning
 
         // Check that all referenced nodes exist
         for edge in &self.edges {
@@ -308,64 +311,6 @@ impl<S: GraphState> StateGraph<S> {
         }
 
         Ok(())
-    }
-
-    /// Check for cycles in the graph (simplified)
-    fn check_cycles(&self) -> GraphResult<()> {
-        let mut visited = HashSet::new();
-        let mut rec_stack = HashSet::new();
-
-        for entry in &self.entry_points {
-            if self.has_cycle_util(entry, &mut visited, &mut rec_stack)? {
-                return Err(LangGraphError::graph_validation(
-                    "Graph contains cycles",
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Utility function for cycle detection
-    fn has_cycle_util(
-        &self,
-        node: &str,
-        visited: &mut HashSet<String>,
-        rec_stack: &mut HashSet<String>,
-    ) -> GraphResult<bool> {
-        if rec_stack.contains(node) {
-            return Ok(true);
-        }
-
-        if visited.contains(node) {
-            return Ok(false);
-        }
-
-        visited.insert(node.to_string());
-        rec_stack.insert(node.to_string());
-
-        // Check direct edges
-        for edge in &self.edges {
-            if edge.from == node && edge.to != END {
-                if self.has_cycle_util(&edge.to, visited, rec_stack)? {
-                    return Ok(true);
-                }
-            }
-        }
-
-        // Check conditional edges
-        if let Some(branch) = self.branches.get(node) {
-            for target in &branch.targets {
-                if target != END {
-                    if self.has_cycle_util(target, visited, rec_stack)? {
-                        return Ok(true);
-                    }
-                }
-            }
-        }
-
-        rec_stack.remove(node);
-        Ok(false)
     }
 
     /// Compile the graph into an executable form
@@ -447,36 +392,74 @@ impl<S: GraphState> CompiledGraph<S> {
     }
 
     /// Execute the graph with configuration
-    pub async fn invoke_with_config(&self, input: S, config: GraphConfig) -> GraphResult<S> {
-        let mut stream = self.stream_with_config(input, config).await?;
-        
-        let mut final_state = None;
-        while let Some(event) = stream.next().await {
-            match event.data {
-                StreamEventData::State(state) => {
-                    if event.event_type == StreamEventType::GraphComplete {
-                        final_state = Some(state);
-                        break;
+    pub async fn invoke_with_config(&self, input: S, _config: GraphConfig) -> GraphResult<S> {
+        // Simple implementation for testing
+        // TODO: Replace with proper Pregel execution
+
+        let mut current_state = input;
+        let mut step = 0;
+        const MAX_STEPS: u32 = 100; // Prevent infinite loops
+
+        let mut current_nodes = self.entry_points.clone();
+
+        while !current_nodes.is_empty() && step < MAX_STEPS {
+            step += 1;
+            let mut next_nodes = Vec::new();
+
+            // Execute each current node
+            for node_name in &current_nodes {
+                if node_name == END {
+                    continue;
+                }
+
+                if let Some(node_spec) = self.nodes.get(node_name) {
+                    // Create execution context
+                    let mut context = ExecutionContext::new(node_name, "graph");
+                    context.step = step;
+
+                    // Execute the node function
+                    current_state = node_spec.function.call(current_state, context).await?;
+
+                    // Determine next nodes based on edges and conditional branches
+                    let mut found_next = false;
+
+                    // Check conditional branches first
+                    if let Some(branch) = self.branches.get(node_name) {
+                        let condition_result = (branch.condition)(&current_state)?;
+                        if branch.targets.contains(&condition_result) {
+                            if condition_result == END {
+                                return Ok(current_state);
+                            }
+                            next_nodes.push(condition_result);
+                            found_next = true;
+                        }
+                    }
+
+                    // Check direct edges if no conditional branch matched
+                    if !found_next {
+                        for edge in &self.edges {
+                            if edge.from == *node_name {
+                                if edge.to == END {
+                                    return Ok(current_state);
+                                }
+                                next_nodes.push(edge.to.clone());
+                            }
+                        }
                     }
                 }
-                StreamEventData::Error { message, code } => {
-                    return Err(LangGraphError::runtime(format!(
-                        "Graph execution failed: {} (code: {})",
-                        message, code
-                    )));
-                }
-                _ => {}
             }
+
+            current_nodes = next_nodes;
         }
 
-        final_state.ok_or_else(|| LangGraphError::runtime("Graph execution did not complete"))
-    }
+        if step >= MAX_STEPS {
+            return Err(LangGraphError::recursion_limit(MAX_STEPS as usize));
+        }
 
+        Ok(current_state)
+    }
     /// Stream graph execution events
-    pub async fn stream(
-        &self,
-        input: S,
-    ) -> GraphResult<impl Stream<Item = StreamEvent<S>> + '_> {
+    pub async fn stream(&self, input: S) -> GraphResult<impl Stream<Item = StreamEvent<S>> + '_> {
         let config = GraphConfig::default();
         self.stream_with_config(input, config).await
     }
@@ -496,11 +479,7 @@ impl<S: GraphState> CompiledGraph<S> {
     }
 
     /// Update the state
-    pub async fn update_state(
-        &self,
-        thread_id: &str,
-        state: S,
-    ) -> GraphResult<()> {
+    pub async fn update_state(&self, thread_id: &str, state: S) -> GraphResult<()> {
         self.pregel_engine.update_state(thread_id, state).await
     }
 

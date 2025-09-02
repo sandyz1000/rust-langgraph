@@ -1,7 +1,6 @@
 //! Error types for LangGraph core operations
 
 use thiserror::Error;
-use std::fmt;
 
 /// Primary error type for LangGraph operations
 #[derive(Error, Debug)]

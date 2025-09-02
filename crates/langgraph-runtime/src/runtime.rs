@@ -1,6 +1,6 @@
 //! Runtime execution management
 
-use langgraph_core::{GraphResult, LangGraphError};
+use langgraph_core::GraphResult;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
