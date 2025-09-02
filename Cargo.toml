@@ -1,0 +1,55 @@
+[package]
+name = "rust-langgraph"
+version = "0.1.0"
+edition = "2021"
+authors = ["LangGraph Rust Team"]
+description = "A Rust implementation of LangGraph - stateful graph orchestration for LLM applications"
+license = "MIT"
+repository = "https://github.com/rust-langgraph/rust-langgraph"
+
+[dependencies]
+langgraph-core = { path = "crates/langgraph-core" }
+langgraph-checkpoint = { path = "crates/langgraph-checkpoint" }
+langgraph-runtime = { path = "crates/langgraph-runtime" }
+langgraph-prebuilt = { path = "crates/langgraph-prebuilt" }
+
+# Re-export common dependencies
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+futures = "0.3"
+num_cpus = "1.17.0"
+
+[workspace]
+members = [
+    "crates/langgraph-core",
+    "crates/langgraph-checkpoint",
+    "crates/langgraph-runtime",
+    "crates/langgraph-prebuilt",
+    "crates/langgraph-cli",
+]
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+async-trait = "0.1"
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[[example]]
+name = "basic_agent"
+path = "examples/basic_agent.rs"
+
+[[example]]
+name = "advanced_workflow"
+path = "examples/advanced_workflow.rs"
+
+[[example]]
+name = "streaming"
+path = "examples/streaming.rs"

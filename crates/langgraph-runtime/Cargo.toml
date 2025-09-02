@@ -1,0 +1,22 @@
+[package]
+name = "langgraph-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Runtime execution context and management for LangGraph"
+license = "MIT"
+repository = "https://github.com/yourusername/rust-langgraph"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+dashmap = "6.0"
+langgraph-core = { path = "../langgraph-core" }
+langgraph-checkpoint = { path = "../langgraph-checkpoint" }
+futures = "0.3.31"
+
+[dev-dependencies]
+tokio-test = "0.4"
