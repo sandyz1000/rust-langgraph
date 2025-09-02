@@ -12,6 +12,7 @@ A comprehensive Rust implementation of LangGraph, a library for building statefu
 - **Type Safety**: Leverage Rust's type system for reliable graph execution
 - **Concurrent Execution**: Efficient parallel node execution
 - **Flexible Serialization**: Multiple serialization protocols (JSON, MessagePack, compression)
+- **Observability**: Comprehensive monitoring, tracing, and debugging toolkit similar to LangSmith
 
 ## 📦 Project Structure
 
@@ -24,6 +25,7 @@ rust-langgraph/
 │   ├── langgraph-checkpoint/  # Checkpointing system
 │   ├── langgraph-runtime/     # Runtime and execution context
 │   ├── langgraph-prebuilt/    # High-level agent builders
+│   ├── langgraph-observability/ # 🔍 Observability and debugging toolkit
 │   └── langgraph-cli/         # Command-line interface
 └── examples/                  # Example applications
     ├── basic_agent.rs         # Simple agent example
@@ -123,12 +125,58 @@ Demonstrates:
 - Token-by-token processing
 - Progress monitoring
 
+### 4. Observability Demo (`examples/observability_demo.rs`) 🔍
+**NEW**: Comprehensive observability and debugging toolkit
+Demonstrates:
+- LangSmith-like monitoring and debugging
+- Real-time dashboard at http://localhost:3000
+- Distributed tracing with OpenTelemetry
+- Prometheus metrics collection
+- Prompt analysis and optimization
+- WebSocket-based live event streaming
+
 Run examples:
 ```bash
 cargo run --example basic_agent
 cargo run --example advanced_workflow
 cargo run --example streaming
+
+# Run the observability demo
+cargo run --example observability_demo
+# OR use the convenience script
+./run_observability_demo.sh
 ```
+
+## 🔍 Observability & Debugging
+
+LangGraph Rust includes a comprehensive observability toolkit that provides LangSmith-like functionality for monitoring and debugging your graph applications:
+
+### Key Features
+- **Real-time Dashboard**: Web UI at http://localhost:3000 for monitoring runs
+- **Distributed Tracing**: OpenTelemetry integration with Jaeger/OTLP support
+- **Metrics Collection**: Prometheus-compatible metrics for performance monitoring
+- **Prompt Analysis**: Automatic analysis of LLM interactions with optimization suggestions
+- **Event Streaming**: WebSocket-based real-time event streaming
+- **Multiple Storage**: In-memory, SQLite, and PostgreSQL backends
+
+### Quick Start
+```rust
+use langgraph_observability::{Observability, ObservabilityConfig};
+
+let observability = Observability::new(
+    ObservabilityConfig::builder()
+        .with_tracing(true)
+        .with_metrics(true)
+        .with_dashboard(true)
+        .build()
+).await?;
+
+observability.start_dashboard("127.0.0.1:3000").await?;
+let observer = observability.create_graph_observer();
+// Use observer with your graphs...
+```
+
+See `crates/langgraph-observability/README.md` for detailed documentation.
 
 ## 🔧 API Reference
 
@@ -218,6 +266,12 @@ cargo test -- --nocapture
 - Channel system for communication
 - Error handling and validation
 - Comprehensive examples
+- **🔍 Observability Toolkit** - Complete LangSmith-like monitoring system
+  - Real-time web dashboard
+  - Distributed tracing with OpenTelemetry
+  - Prometheus metrics collection
+  - Prompt analysis and optimization
+  - WebSocket event streaming
 
 ### 🚧 In Progress
 - Additional checkpoint backends (SQLite, PostgreSQL, Redis)
@@ -226,10 +280,10 @@ cargo test -- --nocapture
 - Integration with LLM libraries
 
 ### 📋 Planned
-- Web UI for graph visualization
 - More prebuilt agent types
 - Plugin system for extensions
-- Monitoring and observability tools
+- Advanced graph optimization features
+- Integration with more LLM providers
 
 ## 🤝 Contributing
 

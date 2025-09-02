@@ -1,0 +1,94 @@
+[package]
+name = "langgraph-observability"
+version = "0.1.0"
+edition = "2021"
+description = "Observability and debugging toolkit for LangGraph applications"
+license = "MIT"
+authors = ["LangGraph Team"]
+
+[[example]]
+name = "simple_dashboard"
+required-features = []
+
+[features]
+default = ["storage"]
+storage = ["dep:sqlx"]
+metrics = ["dep:metrics-exporter-prometheus"]
+tracing = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-jaeger",
+    "dep:opentelemetry-prometheus",
+    "dep:tracing-opentelemetry",
+]
+frontend = [
+    "dep:dioxus",
+    "dep:dioxus-router",
+    "dep:dioxus-ssr",
+    "dep:dioxus-web",
+    "dep:wasm-bindgen",
+    "dep:web-sys",
+    "dep:gloo-net",
+]
+full = ["storage", "metrics", "tracing", "frontend"]
+
+[dependencies]
+# Core dependencies
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+thiserror = "2.0.16"
+anyhow = "1.0"
+
+# Axum for web server
+axum = { version = "0.8.4", features = ["macros", "ws"] }
+tower-http = { version = "0.6.6", features = ["cors", "fs"] }
+futures = "0.3"
+
+# Storage
+dashmap = { workspace = true }
+sqlx = { version = "0.8", features = [
+    "runtime-tokio-rustls",
+    "sqlite",
+    "postgres",
+    "chrono",
+    "uuid",
+], optional = true }
+
+# Metrics and observability
+metrics = "0.24.2"
+metrics-exporter-prometheus = { version = "0.17.2", optional = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+
+# OpenTelemetry for distributed tracing (optional)
+opentelemetry = { version = "0.30.0", optional = true }
+opentelemetry_sdk = { version = "0.30.0", features = [
+    "rt-tokio",
+], optional = true }
+opentelemetry-jaeger = { version = "0.22", optional = true }
+opentelemetry-prometheus = { version = "0.15", optional = true }
+tracing-opentelemetry = { version = "0.23", optional = true }
+
+# LangGraph
+langgraph-core = { path = "../langgraph-core" }
+
+# Frontend dependencies (optional)
+dioxus = { version = "0.6.3", optional = true }
+dioxus-router = { version = "0.6.3", optional = true }
+dioxus-ssr = { version = "0.6.2", optional = true }
+dioxus-web = { version = "0.6.3", optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true }
+gloo-net = { version = "0.6.0", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = { version = "0.1", optional = true }
+wasm-logger = { version = "0.2", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.0"

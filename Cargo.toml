@@ -12,6 +12,7 @@ langgraph-core = { path = "crates/langgraph-core" }
 langgraph-checkpoint = { path = "crates/langgraph-checkpoint" }
 langgraph-runtime = { path = "crates/langgraph-runtime" }
 langgraph-prebuilt = { path = "crates/langgraph-prebuilt" }
+langgraph-observability = { path = "crates/langgraph-observability" }
 
 # Re-export common dependencies
 tokio = { version = "1.0", features = ["full"] }
@@ -30,6 +31,7 @@ members = [
     "crates/langgraph-runtime",
     "crates/langgraph-prebuilt",
     "crates/langgraph-cli",
+    "crates/langgraph-observability",
 ]
 
 [workspace.dependencies]
@@ -37,6 +39,7 @@ tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 async-trait = "0.1"
 anyhow = "1.0"
+dashmap = "6.1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [dev-dependencies]

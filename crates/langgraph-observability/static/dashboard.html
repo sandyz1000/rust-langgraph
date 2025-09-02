@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - LangGraph Observability</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+    <!-- Navigation Header -->
+    <div class="navbar bg-base-100 shadow-lg border-b border-base-300">
+        <div class="navbar-start">
+            <div class="dropdown lg:hidden">
+                <div tabindex="0" role="button" class="btn btn-ghost">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6h16M4 12h8m-8 6h16" />
+                    </svg>
+                </div>
+                <ul tabindex="0"
+                    class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+                    <li><a href="/" class="active">Dashboard</a></li>
+                    <li><a href="/runs">Runs</a></li>
+                    <li><a href="/metrics">Metrics</a></li>
+                    <li><a href="/prompts">Prompts</a></li>
+                </ul>
+            </div>
+            <a href="/"
+                class="btn btn-ghost text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+                LangGraph Observatory
+            </a>
+        </div>
+        <div class="navbar-center hidden lg:flex">
+            <ul class="menu menu-horizontal px-1">
+                <li><a href="/" class="bg-primary text-primary-content">Dashboard</a></li>
+                <li><a href="/runs" class="hover:bg-primary hover:text-primary-content transition-colors">Runs</a></li>
+                <li><a href="/metrics" class="hover:bg-primary hover:text-primary-content transition-colors">Metrics</a>
+                </li>
+                <li><a href="/prompts" class="hover:bg-primary hover:text-primary-content transition-colors">Prompts</a>
+                </li>
+            </ul>
+        </div>
+        <div class="navbar-end">
+            <div class="flex items-center space-x-2">
+                <div class="badge badge-success gap-2">
+                    <div class="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                    Live
+                </div>
+                <div class="dropdown dropdown-end">
+                    <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar">
+                        <div class="w-10 rounded-full bg-primary text-primary-content flex items-center justify-center">
+                            <span class="text-sm font-semibold">U</span>
+                        </div>
+                    </div>
+                    <ul tabindex="0"
+                        class="mt-3 z-[1] p-2 shadow menu menu-sm dropdown-content bg-base-100 rounded-box w-52">
+                        <li><a>Settings</a></li>
+                        <li><a>Help</a></li>
+                        <li><a>Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Welcome Header -->
+        <div class="mb-8">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h1 class="text-4xl font-bold text-base-content mb-2">Welcome to LangGraph Observatory</h1>
+                    <p class="text-lg text-base-content/60">Monitor, analyze, and optimize your LangGraph executions in
+                        real-time</p>
+                </div>
+                <div class="mt-4 sm:mt-0">
+                    <div class="text-right">
+                        <div class="text-sm text-base-content/60">Last updated</div>
+                        <div class="font-semibold" id="last-updated">Sep 2, 2025 14:45:23</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Status -->
+        <div class="mb-8">
+            <div class="alert alert-success shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none"
+                    viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                    <h3 class="font-bold">System Status: Operational</h3>
+                    <div class="text-xs">All services running normally • 99.9% uptime • 24 active connections</div>
+                </div>
+                <div class="flex-none">
+                    <button class="btn btn-sm btn-ghost">View Details</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="card bg-base-100 shadow-lg border border-base-300 hover:shadow-xl transition-shadow">
+                <div class="card-body">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-base-content/60 text-sm font-medium">Active Runs</p>
+                            <p class="text-3xl font-bold text-primary">7</p>
+                            <p class="text-success text-sm">
+                                <span class="font-medium">+2</span> from last hour
+                            </p>
+                        </div>
+                        <div class="bg-primary/10 p-3 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-lg border border-base-300 hover:shadow-xl transition-shadow">
+                <div class="card-body">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-base-content/60 text-sm font-medium">Total Executions</p>
+                            <p class="text-3xl font-bold text-info">2,847</p>
+                            <p class="text-success text-sm">
+                                <span class="font-medium">+145</span> today
+                            </p>
+                        </div>
+                        <div class="bg-info/10 p-3 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-info" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-lg border border-base-300 hover:shadow-xl transition-shadow">
+                <div class="card-body">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-base-content/60 text-sm font-medium">Success Rate</p>
+                            <p class="text-3xl font-bold text-success">96.8%</p>
+                            <p class="text-success text-sm">
+                                <span class="font-medium">+1.2%</span> improvement
+                            </p>
+                        </div>
+                        <div class="bg-success/10 p-3 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-success" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-lg border border-base-300 hover:shadow-xl transition-shadow">
+                <div class="card-body">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-base-content/60 text-sm font-medium">Avg Response Time</p>
+                            <p class="text-3xl font-bold text-warning">2.34s</p>
+                            <p class="text-error text-sm">
+                                <span class="font-medium">+0.12s</span> from last hour
+                            </p>
+                        </div>
+                        <div class="bg-warning/10 p-3 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-warning" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts and Recent Activity -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <!-- Execution Trends Chart -->
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="card-title">Execution Trends</h2>
+                        <select class="select select-bordered select-sm">
+                            <option>Last 24 hours</option>
+                            <option>Last 7 days</option>
+                            <option>Last 30 days</option>
+                        </select>
+                    </div>
+                    <div class="h-64">
+                        <canvas id="trendsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity -->
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="card-title">Recent Activity</h2>
+                        <a href="/runs" class="link link-primary text-sm">View All</a>
+                    </div>
+                    <div class="space-y-3">
+                        <div class="flex items-center justify-between p-3 bg-success/10 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-2 h-2 bg-success rounded-full"></div>
+                                <div>
+                                    <div class="font-semibold text-sm">customer-query-graph</div>
+                                    <div class="text-xs text-base-content/60">run_abc123 completed</div>
+                                </div>
+                            </div>
+                            <div class="text-xs text-base-content/60">2 min ago</div>
+                        </div>
+
+                        <div class="flex items-center justify-between p-3 bg-primary/10 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                                <div>
+                                    <div class="font-semibold text-sm">ml-pipeline-graph</div>
+                                    <div class="text-xs text-base-content/60">run_ghi789 running</div>
+                                </div>
+                            </div>
+                            <div class="text-xs text-base-content/60">5 min ago</div>
+                        </div>
+
+                        <div class="flex items-center justify-between p-3 bg-error/10 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-2 h-2 bg-error rounded-full"></div>
+                                <div>
+                                    <div class="font-semibold text-sm">data-transform-graph</div>
+                                    <div class="text-xs text-base-content/60">run_def456 failed</div>
+                                </div>
+                            </div>
+                            <div class="text-xs text-base-content/60">7 min ago</div>
+                        </div>
+
+                        <div class="flex items-center justify-between p-3 bg-info/10 rounded-lg">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-2 h-2 bg-info rounded-full"></div>
+                                <div>
+                                    <div class="font-semibold text-sm">analysis-pipeline</div>
+                                    <div class="text-xs text-base-content/60">run_jkl012 queued</div>
+                                </div>
+                            </div>
+                            <div class="text-xs text-base-content/60">10 min ago</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Health and Quick Actions -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- System Health -->
+            <div class="lg:col-span-2">
+                <div class="card bg-base-100 shadow-lg border border-base-300">
+                    <div class="card-body">
+                        <h2 class="card-title mb-4">System Health</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="text-center">
+                                <div class="radial-progress text-success mb-2"
+                                    style="--value:95; --size:4rem; --thickness: 4px;">
+                                    <span class="text-sm font-bold">95%</span>
+                                </div>
+                                <div class="text-sm font-semibold">CPU Usage</div>
+                                <div class="text-xs text-base-content/60">Optimal</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="radial-progress text-warning mb-2"
+                                    style="--value:68; --size:4rem; --thickness: 4px;">
+                                    <span class="text-sm font-bold">68%</span>
+                                </div>
+                                <div class="text-sm font-semibold">Memory</div>
+                                <div class="text-xs text-base-content/60">Good</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="radial-progress text-info mb-2"
+                                    style="--value:82; --size:4rem; --thickness: 4px;">
+                                    <span class="text-sm font-bold">82%</span>
+                                </div>
+                                <div class="text-sm font-semibold">Network</div>
+                                <div class="text-xs text-base-content/60">Excellent</div>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 space-y-3">
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span>Active Graphs</span>
+                                    <span>3/5</span>
+                                </div>
+                                <progress class="progress progress-primary w-full" value="60" max="100"></progress>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span>Queue Depth</span>
+                                    <span>12/100</span>
+                                </div>
+                                <progress class="progress progress-info w-full" value="12" max="100"></progress>
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-sm mb-1">
+                                    <span>Error Rate</span>
+                                    <span>3.2%</span>
+                                </div>
+                                <progress class="progress progress-success w-full" value="3" max="100"></progress>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="space-y-6">
+                <div class="card bg-base-100 shadow-lg border border-base-300">
+                    <div class="card-body">
+                        <h2 class="card-title mb-4">Quick Actions</h2>
+                        <div class="space-y-3">
+                            <button class="btn btn-primary w-full gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 4v16m8-8H4" />
+                                </svg>
+                                New Graph Run
+                            </button>
+                            <button class="btn btn-outline w-full gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
+                                View All Runs
+                            </button>
+                            <button class="btn btn-outline w-full gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                Export Reports
+                            </button>
+                            <button class="btn btn-outline w-full gap-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                </svg>
+                                System Settings
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card bg-base-100 shadow-lg border border-base-300">
+                    <div class="card-body">
+                        <h2 class="card-title mb-4">Alerts & Notifications</h2>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex items-center space-x-2">
+                                <div class="w-2 h-2 bg-warning rounded-full"></div>
+                                <span>Memory usage approaching 70% threshold</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <div class="w-2 h-2 bg-info rounded-full"></div>
+                                <span>New version available (v2.1.0)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        let trendsChart;
+
+        function initCharts() {
+            // Trends Chart
+            const trendsCtx = document.getElementById('trendsChart').getContext('2d');
+            trendsChart = new Chart(trendsCtx, {
+                type: 'line',
+                data: {
+                    labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
+                    datasets: [{
+                        label: 'Successful Runs',
+                        data: [45, 38, 52, 61, 58, 47, 42],
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }, {
+                        label: 'Failed Runs',
+                        data: [5, 3, 7, 4, 6, 8, 3],
+                        borderColor: 'rgb(239, 68, 68)',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateLastUpdated() {
+            const now = new Date();
+            document.getElementById('last-updated').textContent = now.toLocaleString();
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-top toast-end';
+            toast.innerHTML = `
+                <div class="alert alert-${type}">
+                    <span>${message}</span>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 3000);
+        }
+
+        // Initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', function () {
+            initCharts();
+
+            // Update timestamp every minute
+            setInterval(updateLastUpdated, 60000);
+
+            // Auto-refresh data every 30 seconds
+            setInterval(() => {
+                // In real implementation, this would fetch new data
+                console.log('Refreshing dashboard data...');
+            }, 30000);
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Runs - LangGraph Observability</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+    <!-- Navigation Header -->
+    <div class="navbar bg-base-100 shadow-lg border-b border-base-300">
+        <div class="navbar-start">
+            <div class="dropdown lg:hidden">
+                <div tabindex="0" role="button" class="btn btn-ghost">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6h16M4 12h8m-8 6h16" />
+                    </svg>
+                </div>
+                <ul tabindex="0"
+                    class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+                    <li><a href="/">Dashboard</a></li>
+                    <li><a href="/runs" class="active">Runs</a></li>
+                    <li><a href="/metrics">Metrics</a></li>
+                    <li><a href="/prompts">Prompts</a></li>
+                </ul>
+            </div>
+            <a href="/"
+                class="btn btn-ghost text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+                LangGraph Observatory
+            </a>
+        </div>
+        <div class="navbar-center hidden lg:flex">
+            <ul class="menu menu-horizontal px-1">
+                <li><a href="/" class="hover:bg-primary hover:text-primary-content transition-colors">Dashboard</a></li>
+                <li><a href="/runs" class="bg-primary text-primary-content">Runs</a></li>
+                <li><a href="/metrics" class="hover:bg-primary hover:text-primary-content transition-colors">Metrics</a>
+                </li>
+                <li><a href="/prompts" class="hover:bg-primary hover:text-primary-content transition-colors">Prompts</a>
+                </li>
+            </ul>
+        </div>
+        <div class="navbar-end">
+            <div class="flex items-center space-x-2">
+                <div class="badge badge-success gap-2">
+                    <div class="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                    Live
+                </div>
+                <div class="dropdown dropdown-end">
+                    <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar">
+                        <div class="w-10 rounded-full bg-primary text-primary-content flex items-center justify-center">
+                            <span class="text-sm font-semibold">U</span>
+                        </div>
+                    </div>
+                    <ul tabindex="0"
+                        class="mt-3 z-[1] p-2 shadow menu menu-sm dropdown-content bg-base-100 rounded-box w-52">
+                        <li><a>Settings</a></li>
+                        <li><a>Help</a></li>
+                        <li><a>Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Page Header -->
+        <div class="mb-8">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-base-content mb-2">Graph Execution Runs</h1>
+                    <p class="text-base-content/60">Monitor and analyze your LangGraph execution runs in real-time</p>
+                </div>
+                <div class="mt-4 sm:mt-0">
+                    <button class="btn btn-primary gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                        </svg>
+                        New Run
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="stats shadow bg-base-100 border border-base-300">
+                <div class="stat">
+                    <div class="stat-figure text-success">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                            class="inline-block w-8 h-8 stroke-current">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <div class="stat-title">Completed</div>
+                    <div class="stat-value text-success">1,234</div>
+                    <div class="stat-desc">↗︎ 400 (22%)</div>
+                </div>
+            </div>
+
+            <div class="stats shadow bg-base-100 border border-base-300">
+                <div class="stat">
+                    <div class="stat-figure text-error">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                            class="inline-block w-8 h-8 stroke-current">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </div>
+                    <div class="stat-title">Failed</div>
+                    <div class="stat-value text-error">89</div>
+                    <div class="stat-desc">↘︎ 12 (7%)</div>
+                </div>
+            </div>
+
+            <div class="stats shadow bg-base-100 border border-base-300">
+                <div class="stat">
+                    <div class="stat-figure text-warning">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                            class="inline-block w-8 h-8 stroke-current">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z">
+                            </path>
+                        </svg>
+                    </div>
+                    <div class="stat-title">Running</div>
+                    <div class="stat-value text-warning">7</div>
+                    <div class="stat-desc">↘︎ 2 (22%)</div>
+                </div>
+            </div>
+
+            <div class="stats shadow bg-base-100 border border-base-300">
+                <div class="stat">
+                    <div class="stat-figure text-info">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                            class="inline-block w-8 h-8 stroke-current">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                    <div class="stat-title">Avg Duration</div>
+                    <div class="stat-value text-info">2.4s</div>
+                    <div class="stat-desc">↗︎ 0.2s (9%)</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters and Search -->
+        <div class="bg-base-100 rounded-xl shadow-lg border border-base-300 p-6 mb-8">
+            <div
+                class="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-4 lg:space-y-0 lg:space-x-4">
+                <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 flex-1">
+                    <div class="form-control flex-1">
+                        <div class="input-group">
+                            <span class="bg-base-200">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </span>
+                            <input type="text" placeholder="Search runs, graphs, or IDs..."
+                                class="input input-bordered flex-1" />
+                        </div>
+                    </div>
+                    <select class="select select-bordered">
+                        <option disabled selected>Status</option>
+                        <option>All</option>
+                        <option>Completed</option>
+                        <option>Failed</option>
+                        <option>Running</option>
+                        <option>Pending</option>
+                    </select>
+                    <select class="select select-bordered">
+                        <option disabled selected>Graph</option>
+                        <option>All Graphs</option>
+                        <option>customer-query-graph</option>
+                        <option>data-transform-graph</option>
+                        <option>ml-pipeline-graph</option>
+                    </select>
+                    <input type="date" class="input input-bordered" />
+                </div>
+                <div class="flex space-x-2">
+                    <button class="btn btn-ghost">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.414A1 1 0 013 6.707V4z" />
+                        </svg>
+                        Clear Filters
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Runs Table -->
+        <div class="bg-base-100 rounded-xl shadow-lg border border-base-300 overflow-hidden">
+            <div class="p-6 border-b border-base-300">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                    <h2 class="text-xl font-semibold text-base-content">Recent Executions</h2>
+                    <div class="mt-4 sm:mt-0 flex items-center space-x-2">
+                        <button class="btn btn-sm btn-outline">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Export
+                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="refreshRuns()">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="table table-zebra w-full">
+                    <thead class="bg-base-200">
+                        <tr>
+                            <th class="font-semibold">Run ID</th>
+                            <th class="font-semibold">Graph</th>
+                            <th class="font-semibold">Status</th>
+                            <th class="font-semibold">Duration</th>
+                            <th class="font-semibold">Started</th>
+                            <th class="font-semibold">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="runs-table-body">
+                        <!-- Dynamic content will be loaded here -->
+                        <tr>
+                            <td colspan="6" class="text-center py-8">
+                                <div class="loading loading-spinner loading-lg text-primary"></div>
+                                <p class="mt-4 text-base-content/60">Loading runs...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div class="flex flex-col sm:flex-row items-center justify-between px-6 py-4 border-t border-base-300">
+                <div class="text-sm text-base-content/60 mb-4 sm:mb-0">
+                    Showing <span id="page-info">1 to 10 of 1,245</span> results
+                </div>
+                <div class="join">
+                    <button class="join-item btn btn-sm" onclick="changePage(-1)">«</button>
+                    <button class="join-item btn btn-sm">Page <span id="current-page">1</span></button>
+                    <button class="join-item btn btn-sm" onclick="changePage(1)">»</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        let currentPage = 1;
+        let runsData = [];
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function () {
+                showToast('Copied to clipboard!', 'success');
+            });
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-top toast-end';
+            toast.innerHTML = `
+                <div class="alert alert-${type}">
+                    <span>${message}</span>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 3000);
+        }
+
+        function generateStatusBadge(status) {
+            const statusMap = {
+                'completed': { class: 'badge-success', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+                'failed': { class: 'badge-error', icon: 'M6 18L18 6M6 6l12 12' },
+                'running': { class: 'badge-warning', icon: null, spinner: true },
+                'pending': { class: 'badge-info', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' }
+            };
+
+            const config = statusMap[status.toLowerCase()] || statusMap['pending'];
+            const icon = config.spinner
+                ? '<span class="loading loading-spinner loading-xs"></span>'
+                : `<svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${config.icon}" />
+                   </svg>`;
+
+            return `<div class="badge ${config.class} gap-2">${icon}${status}</div>`;
+        }
+
+        function generateRunRow(run) {
+            const duration = run.duration ? `${run.duration}s` : 'N/A';
+            const nodeProgress = run.current_node ? `${run.completed_nodes}/${run.total_nodes} nodes` : `${run.total_nodes} nodes`;
+
+            return `
+                <tr class="hover:bg-base-50">
+                    <td>
+                        <div class="flex items-center space-x-2">
+                            <div class="font-mono text-sm bg-base-200 px-2 py-1 rounded">
+                                ${run.id}
+                            </div>
+                            <button class="btn btn-ghost btn-xs" onclick="copyToClipboard('${run.id}')">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                            </button>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="flex items-center space-x-2">
+                            <div class="avatar placeholder">
+                                <div class="bg-primary text-primary-content rounded-full w-8">
+                                    <span class="text-xs">${run.graph_id.substring(0, 2).toUpperCase()}</span>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="font-semibold">${run.graph_id}</div>
+                                <div class="text-sm text-base-content/60">${run.version || 'v1.0.0'}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>${generateStatusBadge(run.status)}</td>
+                    <td>
+                        <div class="text-sm">
+                            <div class="font-semibold">${duration}</div>
+                            <div class="text-base-content/60">${nodeProgress}</div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="text-sm">
+                            <div>${new Date(run.start_time).toLocaleDateString()}</div>
+                            <div class="text-base-content/60">${new Date(run.start_time).toLocaleTimeString()}</div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="flex items-center space-x-1">
+                            <a href="/runs/${run.id}" class="btn btn-ghost btn-xs tooltip" data-tip="View Details">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                            </a>
+                            ${run.status === 'running' ?
+                    `<button class="btn btn-ghost btn-xs tooltip" data-tip="Stop" onclick="stopRun('${run.id}')">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                                    </svg>
+                                </button>` :
+                    `<button class="btn btn-ghost btn-xs tooltip" data-tip="Debug">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
+                                    </svg>
+                                </button>`
+                }
+                            <div class="dropdown dropdown-end">
+                                <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                    </svg>
+                                </div>
+                                <ul tabindex="0" class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                                    <li><a onclick="rerunGraph('${run.id}')">Rerun</a></li>
+                                    <li><a onclick="cloneRun('${run.id}')">Clone</a></li>
+                                    <li><a class="text-error" onclick="deleteRun('${run.id}')">Delete</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+
+        async function loadRuns() {
+            try {
+                const response = await fetch('/api/runs/list');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                runsData = await response.json();
+                renderRuns();
+                updateStats();
+            } catch (error) {
+                console.error('Error loading runs:', error);
+                document.getElementById('runs-table-body').innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center py-8">
+                            <div class="text-error">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                                </svg>
+                                <p class="font-semibold">Failed to load runs</p>
+                                <p class="text-sm text-base-content/60 mt-1">${error.message}</p>
+                                <button class="btn btn-sm btn-primary mt-4" onclick="loadRuns()">Retry</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+
+                // Show mock data for demonstration
+                showMockData();
+            }
+        }
+
+        function showMockData() {
+            const mockRuns = [
+                {
+                    id: 'run_abc123',
+                    graph_id: 'customer-query-graph',
+                    status: 'completed',
+                    duration: 2.34,
+                    start_time: new Date(Date.now() - 3600000).toISOString(),
+                    total_nodes: 7,
+                    completed_nodes: 7,
+                    version: 'v1.2.3'
+                },
+                {
+                    id: 'run_def456',
+                    graph_id: 'data-transform-graph',
+                    status: 'failed',
+                    duration: 1.12,
+                    start_time: new Date(Date.now() - 7200000).toISOString(),
+                    total_nodes: 5,
+                    completed_nodes: 3,
+                    version: 'v2.1.0'
+                },
+                {
+                    id: 'run_ghi789',
+                    graph_id: 'ml-pipeline-graph',
+                    status: 'running',
+                    duration: 45.2,
+                    start_time: new Date(Date.now() - 1800000).toISOString(),
+                    total_nodes: 4,
+                    completed_nodes: 2,
+                    current_node: 'feature_extraction',
+                    version: 'v3.0.1'
+                }
+            ];
+
+            runsData = mockRuns;
+            renderRuns();
+        }
+
+        function renderRuns() {
+            const tbody = document.getElementById('runs-table-body');
+
+            if (runsData.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="text-center py-8">
+                            <div class="text-base-content/60">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                </svg>
+                                <p class="font-semibold">No runs found</p>
+                                <p class="text-sm mt-1">Start by creating your first graph execution</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = runsData.map(generateRunRow).join('');
+        }
+
+        function updateStats() {
+            // This would update the stats cards with real data
+            // For now, keeping the static values from the HTML
+        }
+
+        function refreshRuns() {
+            showToast('Refreshing runs...', 'info');
+            loadRuns();
+        }
+
+        function changePage(direction) {
+            currentPage += direction;
+            if (currentPage < 1) currentPage = 1;
+            document.getElementById('current-page').textContent = currentPage;
+            // In real implementation, this would fetch new page data
+        }
+
+        function stopRun(runId) {
+            if (confirm('Are you sure you want to stop this run?')) {
+                // Implement stop functionality
+                showToast(`Stopping run ${runId}...`, 'warning');
+            }
+        }
+
+        function rerunGraph(runId) {
+            showToast(`Rerunning graph for ${runId}...`, 'info');
+        }
+
+        function cloneRun(runId) {
+            showToast(`Cloning run ${runId}...`, 'info');
+        }
+
+        function deleteRun(runId) {
+            if (confirm('Are you sure you want to delete this run? This action cannot be undone.')) {
+                showToast(`Deleting run ${runId}...`, 'error');
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function () {
+            loadRuns();
+
+            // Auto-refresh every 30 seconds
+            setInterval(loadRuns, 30000);
+        });
+    </script>
+</body>
+
+</html>

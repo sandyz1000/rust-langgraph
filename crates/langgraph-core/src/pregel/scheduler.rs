@@ -1,3 +1,4 @@
+#![allow(unused)]
 //! Task scheduler for concurrent execution
 
 use crate::errors::{GraphResult, LangGraphError};

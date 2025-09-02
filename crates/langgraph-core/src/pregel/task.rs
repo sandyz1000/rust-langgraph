@@ -1,3 +1,4 @@
+#![allow(unused)]
 //! Task representation and execution for Pregel engine
 
 use crate::errors::{GraphResult, LangGraphError};

@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Metrics Dashboard - LangGraph Observability</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+    <!-- Navigation Header -->
+    <div class="navbar bg-base-100 shadow-lg border-b border-base-300">
+        <div class="navbar-start">
+            <div class="dropdown lg:hidden">
+                <div tabindex="0" role="button" class="btn btn-ghost">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 6h16M4 12h8m-8 6h16" />
+                    </svg>
+                </div>
+                <ul tabindex="0"
+                    class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+                    <li><a href="/">Dashboard</a></li>
+                    <li><a href="/runs">Runs</a></li>
+                    <li><a href="/metrics" class="active">Metrics</a></li>
+                    <li><a href="/prompts">Prompts</a></li>
+                </ul>
+            </div>
+            <a href="/"
+                class="btn btn-ghost text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+                LangGraph Observatory
+            </a>
+        </div>
+        <div class="navbar-center hidden lg:flex">
+            <ul class="menu menu-horizontal px-1">
+                <li><a href="/" class="hover:bg-primary hover:text-primary-content transition-colors">Dashboard</a></li>
+                <li><a href="/runs" class="hover:bg-primary hover:text-primary-content transition-colors">Runs</a></li>
+                <li><a href="/metrics" class="bg-primary text-primary-content">Metrics</a></li>
+                <li><a href="/prompts" class="hover:bg-primary hover:text-primary-content transition-colors">Prompts</a>
+                </li>
+            </ul>
+        </div>
+        <div class="navbar-end">
+            <div class="flex items-center space-x-2">
+                <div class="badge badge-success gap-2">
+                    <div class="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                    Live
+                </div>
+                <div class="dropdown dropdown-end">
+                    <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar">
+                        <div class="w-10 rounded-full bg-primary text-primary-content flex items-center justify-center">
+                            <span class="text-sm font-semibold">U</span>
+                        </div>
+                    </div>
+                    <ul tabindex="0"
+                        class="mt-3 z-[1] p-2 shadow menu menu-sm dropdown-content bg-base-100 rounded-box w-52">
+                        <li><a>Settings</a></li>
+                        <li><a>Help</a></li>
+                        <li><a>Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Page Header -->
+        <div class="mb-8">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-base-content mb-2">Performance Metrics</h1>
+                    <p class="text-base-content/60">Monitor system performance and graph execution metrics in real-time
+                    </p>
+                </div>
+                <div class="mt-4 sm:mt-0 flex items-center space-x-2">
+                    <select class="select select-bordered select-sm">
+                        <option>Last 24 hours</option>
+                        <option>Last 7 days</option>
+                        <option>Last 30 days</option>
+                        <option>Custom range</option>
+                    </select>
+                    <button class="btn btn-sm btn-primary gap-2" onclick="refreshMetrics()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Performance Indicators -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-base-content/60 text-sm font-medium">Total Executions</p>
+                            <p class="text-3xl font-bold text-base-content">1,847</p>
+                            <p class="text-success text-sm">
+                                <span class="font-medium">+12.5%</span> from last week
+                            </p>
+                        </div>
+                        <div class="bg-primary/10 p-3 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-base-content/60 text-sm font-medium">Avg Response Time</p>
+                            <p class="text-3xl font-bold text-base-content">2.34s</p>
+                            <p class="text-error text-sm">
+                                <span class="font-medium">+0.12s</span> from last week
+                            </p>
+                        </div>
+                        <div class="bg-info/10 p-3 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-info" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-base-content/60 text-sm font-medium">Success Rate</p>
+                            <p class="text-3xl font-bold text-base-content">94.2%</p>
+                            <p class="text-success text-sm">
+                                <span class="font-medium">+2.1%</span> from last week
+                            </p>
+                        </div>
+                        <div class="bg-success/10 p-3 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-success" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-base-content/60 text-sm font-medium">Memory Usage</p>
+                            <p class="text-3xl font-bold text-base-content">68.4%</p>
+                            <p class="text-warning text-sm">
+                                <span class="font-medium">+5.2%</span> from last week
+                            </p>
+                        </div>
+                        <div class="bg-warning/10 p-3 rounded-full">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-warning" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <!-- Execution Timeline Chart -->
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="card-title">Execution Timeline</h2>
+                        <div class="dropdown dropdown-end">
+                            <div tabindex="0" role="button" class="btn btn-ghost btn-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                </svg>
+                            </div>
+                            <ul tabindex="0"
+                                class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                                <li><a onclick="exportChart('timeline')">Export PNG</a></li>
+                                <li><a onclick="exportChart('timeline', 'svg')">Export SVG</a></li>
+                                <li><a onclick="exportChart('timeline', 'csv')">Export Data</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="h-64">
+                        <canvas id="timelineChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Response Time Distribution -->
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="card-title">Response Time Distribution</h2>
+                        <div class="dropdown dropdown-end">
+                            <div tabindex="0" role="button" class="btn btn-ghost btn-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                                </svg>
+                            </div>
+                            <ul tabindex="0"
+                                class="dropdown-content z-[1] menu p-2 shadow bg-base-100 rounded-box w-52">
+                                <li><a onclick="exportChart('response')">Export PNG</a></li>
+                                <li><a onclick="exportChart('response', 'svg')">Export SVG</a></li>
+                                <li><a onclick="exportChart('response', 'csv')">Export Data</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="h-64">
+                        <canvas id="responseChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Metrics -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+            <!-- Memory Usage -->
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <h2 class="card-title mb-4">Memory Usage</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span>Heap Memory</span>
+                                <span>2.3 GB / 4.0 GB</span>
+                            </div>
+                            <progress class="progress progress-primary w-full" value="57" max="100"></progress>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span>Cache Memory</span>
+                                <span>892 MB / 2.0 GB</span>
+                            </div>
+                            <progress class="progress progress-info w-full" value="44" max="100"></progress>
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span>Buffer Memory</span>
+                                <span>156 MB / 512 MB</span>
+                            </div>
+                            <progress class="progress progress-success w-full" value="30" max="100"></progress>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CPU Usage -->
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <h2 class="card-title mb-4">CPU Usage</h2>
+                    <div class="flex items-center justify-center">
+                        <div class="radial-progress text-primary" style="--value:68; --size:8rem; --thickness: 8px;">
+                            <span class="text-2xl font-bold">68%</span>
+                        </div>
+                    </div>
+                    <div class="mt-4 space-y-2 text-sm">
+                        <div class="flex justify-between">
+                            <span>User:</span>
+                            <span class="font-semibold">42%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>System:</span>
+                            <span class="font-semibold">18%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>I/O Wait:</span>
+                            <span class="font-semibold">8%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Connections -->
+            <div class="card bg-base-100 shadow-lg border border-base-300">
+                <div class="card-body">
+                    <h2 class="card-title mb-4">Active Connections</h2>
+                    <div class="space-y-4">
+                        <div class="stat bg-primary/10 rounded-lg p-4">
+                            <div class="stat-title text-primary">WebSocket</div>
+                            <div class="stat-value text-primary text-2xl">24</div>
+                            <div class="stat-desc">Active connections</div>
+                        </div>
+                        <div class="stat bg-info/10 rounded-lg p-4">
+                            <div class="stat-title text-info">HTTP</div>
+                            <div class="stat-value text-info text-2xl">156</div>
+                            <div class="stat-desc">Requests/min</div>
+                        </div>
+                        <div class="stat bg-success/10 rounded-lg p-4">
+                            <div class="stat-title text-success">Database</div>
+                            <div class="stat-value text-success text-2xl">8</div>
+                            <div class="stat-desc">Pool connections</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Metrics Table -->
+        <div class="card bg-base-100 shadow-lg border border-base-300">
+            <div class="card-body">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="card-title">Detailed Metrics</h2>
+                    <div class="flex items-center space-x-2">
+                        <button class="btn btn-sm btn-outline">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Export
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="table table-zebra w-full">
+                        <thead class="bg-base-200">
+                            <tr>
+                                <th>Metric</th>
+                                <th>Current Value</th>
+                                <th>Previous Period</th>
+                                <th>Change</th>
+                                <th>Trend</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <div class="font-semibold">Average Execution Time</div>
+                                    <div class="text-sm text-base-content/60">Graph execution duration</div>
+                                </td>
+                                <td class="font-mono text-sm">2.34s</td>
+                                <td class="font-mono text-sm">2.22s</td>
+                                <td>
+                                    <div class="badge badge-error gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M7 17l10-10M7 7l10 10" />
+                                        </svg>
+                                        +5.4%
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="flex items-center space-x-1">
+                                        <div class="w-16 h-4 bg-base-200 rounded">
+                                            <!-- Mini sparkline would go here -->
+                                            <div class="h-full bg-error rounded" style="width: 65%"></div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="font-semibold">Success Rate</div>
+                                    <div class="text-sm text-base-content/60">Successful executions ratio</div>
+                                </td>
+                                <td class="font-mono text-sm">94.2%</td>
+                                <td class="font-mono text-sm">92.1%</td>
+                                <td>
+                                    <div class="badge badge-success gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M7 17l10-10M7 7l10 10" />
+                                        </svg>
+                                        +2.1%
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="flex items-center space-x-1">
+                                        <div class="w-16 h-4 bg-base-200 rounded">
+                                            <div class="h-full bg-success rounded" style="width: 85%"></div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="font-semibold">Throughput</div>
+                                    <div class="text-sm text-base-content/60">Executions per minute</div>
+                                </td>
+                                <td class="font-mono text-sm">45.7/min</td>
+                                <td class="font-mono text-sm">41.2/min</td>
+                                <td>
+                                    <div class="badge badge-success gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M7 17l10-10M7 7l10 10" />
+                                        </svg>
+                                        +10.9%
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="flex items-center space-x-1">
+                                        <div class="w-16 h-4 bg-base-200 rounded">
+                                            <div class="h-full bg-success rounded" style="width: 78%"></div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="font-semibold">Error Rate</div>
+                                    <div class="text-sm text-base-content/60">Failed executions ratio</div>
+                                </td>
+                                <td class="font-mono text-sm">5.8%</td>
+                                <td class="font-mono text-sm">7.9%</td>
+                                <td>
+                                    <div class="badge badge-success gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M7 17l10-10M7 7l10 10" />
+                                        </svg>
+                                        -2.1%
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="flex items-center space-x-1">
+                                        <div class="w-16 h-4 bg-base-200 rounded">
+                                            <div class="h-full bg-success rounded" style="width: 45%"></div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        let timelineChart, responseChart;
+
+        function initCharts() {
+            // Timeline Chart
+            const timelineCtx = document.getElementById('timelineChart').getContext('2d');
+            timelineChart = new Chart(timelineCtx, {
+                type: 'line',
+                data: {
+                    labels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
+                    datasets: [{
+                        label: 'Successful Executions',
+                        data: [45, 38, 52, 61, 58, 47, 42],
+                        borderColor: 'rgb(34, 197, 94)',
+                        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }, {
+                        label: 'Failed Executions',
+                        data: [5, 3, 7, 4, 6, 8, 3],
+                        borderColor: 'rgb(239, 68, 68)',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+            // Response Time Chart
+            const responseCtx = document.getElementById('responseChart').getContext('2d');
+            responseChart = new Chart(responseCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['< 1s', '1-3s', '3-5s', '> 5s'],
+                    datasets: [{
+                        data: [45, 35, 15, 5],
+                        backgroundColor: [
+                            'rgb(34, 197, 94)',
+                            'rgb(59, 130, 246)',
+                            'rgb(245, 158, 11)',
+                            'rgb(239, 68, 68)'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function refreshMetrics() {
+            showToast('Refreshing metrics...', 'info');
+            // In real implementation, this would fetch new data
+            setTimeout(() => {
+                showToast('Metrics updated!', 'success');
+            }, 1000);
+        }
+
+        function exportChart(chartType, format = 'png') {
+            showToast(`Exporting ${chartType} chart as ${format.toUpperCase()}...`, 'info');
+            // Implementation would depend on chart library capabilities
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = 'toast toast-top toast-end';
+            toast.innerHTML = `
+                <div class="alert alert-${type}">
+                    <span>${message}</span>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                document.body.removeChild(toast);
+            }, 3000);
+        }
+
+        // Initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', function () {
+            initCharts();
+
+            // Auto-refresh every 30 seconds
+            setInterval(refreshMetrics, 30000);
+        });
+    </script>
+</body>
+
+</html>

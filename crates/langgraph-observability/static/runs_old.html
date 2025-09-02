@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LangGraph Observability - Runs</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+
+<body class="bg-base-100 font-sans">
+    <div class="min-h-screen bg-gradient-to-br from-base-100 to-base-200">
+        <!-- Navigation Header -->
+        <div class="navbar bg-base-100 shadow-lg border-b border-base-300">
+            <div class="navbar-start">
+                <div class="dropdown">
+                    <div tabindex="0" role="button" class="btn btn-ghost lg:hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 6h16M4 12h8m-8 6h16" />
+                        </svg>
+                    </div>
+                    <ul tabindex="0"
+                        class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+                        <li><a href="/" class="font-medium">Dashboard</a></li>
+                        <li><a href="/runs" class="font-medium text-primary">Runs</a></li>
+                        <li><a href="/metrics" class="font-medium">Metrics</a></li>
+                        <li><a href="/prompts" class="font-medium">Prompts</a></li>
+                    </ul>
+                </div>
+                <a href="/" class="btn btn-ghost text-xl font-bold">
+                    <span class="text-primary">🦜</span>
+                    LangGraph Observatory
+                </a>
+            </div>
+            <div class="navbar-center hidden lg:flex">
+                <ul class="menu menu-horizontal px-1">
+                    <li><a href="/" class="font-medium">Dashboard</a></li>
+                    <li><a href="/runs" class="font-medium text-primary bg-primary/10 rounded-lg">Runs</a></li>
+                    <li><a href="/metrics" class="font-medium">Metrics</a></li>
+                    <li><a href="/prompts" class="font-medium">Prompts</a></li>
+                </ul>
+            </div>
+            <div class="navbar-end">
+                <div class="form-control">
+                    <input type="text" placeholder="Search runs..." class="input input-bordered w-24 md:w-auto" />
+                </div>
+                <div class="dropdown dropdown-end ml-2">
+                    <div tabindex="0" role="button" class="btn btn-ghost btn-circle">
+                        <div class="indicator">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                                stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15 17h5l-5 5l-5-5h5v-12" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="container mx-auto px-4 py-8 max-w-7xl">
+            <!-- Page Header -->
+            <div class="mb-8">
+                <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <h1 class="text-4xl font-bold text-base-content mb-2">Graph Runs</h1>
+                        <p class="text-base-content/70 text-lg">Monitor and debug your LangGraph executions</p>
+                    </div>
+                    <div class="mt-4 lg:mt-0 flex flex-wrap gap-2">
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Status Filter</span>
+                            </label>
+                            <select class="select select-bordered select-sm">
+                                <option>All Status</option>
+                                <option>Running</option>
+                                <option>Completed</option>
+                                <option>Failed</option>
+                                <option>Cancelled</option>
+                            </select>
+                        </div>
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text">Time Range</span>
+                            </label>
+                            <select class="select select-bordered select-sm">
+                                <option>Last 24 hours</option>
+                                <option>Last 7 days</option>
+                                <option>Last 30 days</option>
+                                <option>Custom</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="stats shadow bg-base-100 border border-base-300">
+                    <div class="stat">
+                        <div class="stat-figure text-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                class="inline-block w-8 h-8 stroke-current">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                        <div class="stat-title">Total Runs</div>
+                        <div class="stat-value text-primary">1,24</div>
+                        <div class="stat-desc">↗︎ 400 (22%)</div>
+                    </div>
+                </div>
+
+                <div class="stats shadow bg-base-100 border border-base-300">
+                    <div class="stat">
+                        <div class="stat-figure text-success">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                class="inline-block w-8 h-8 stroke-current">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                        <div class="stat-title">Successful</div>
+                        <div class="stat-value text-success">1,089</div>
+                        <div class="stat-desc">↗︎ 90 (8%)</div>
+                    </div>
+                </div>
+
+                <div class="stats shadow bg-base-100 border border-base-300">
+                    <div class="stat">
+                        <div class="stat-figure text-error">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                class="inline-block w-8 h-8 stroke-current">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </div>
+                        <div class="stat-title">Failed</div>
+                        <div class="stat-value text-error">89</div>
+                        <div class="stat-desc">↗︎ 400 (22%)</div>
+                    </div>
+                </div>
+
+                <div class="stats shadow bg-base-100 border border-base-300">
+                    <div class="stat">
+                        <div class="stat-figure text-warning">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                class="inline-block w-8 h-8 stroke-current">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                            </svg>
+                        </div>
+                        <div class="stat-title">Running</div>
+                        <div class="stat-value text-warning">67</div>
+                        <div class="stat-desc">↘︎ 90 (14%)</div>
+                    </div>
+                </div>
+            </div>
+</head>
+
+<body>
+    <div class="header">
+        <h1>LangGraph Observability Dashboard</h1>
+        <div class="nav">
+            <a href="/api/runs">Runs</a>
+            <a href="/api/metrics">Metrics</a>
+            <a href="/api/prompts">Prompts</a>
+        </div>
+    </div>
+
+    <h2>Graph Runs</h2>
+    <div id="runs-container">
+        <p>Loading runs...</p>
+    </div>
+
+    <script>
+        async function loadRuns() {
+            try {
+                const response = await fetch('/api/runs/list');
+                const runs = await response.json();
+
+                const container = document.getElementById('runs-container');
+                if (runs.length === 0) {
+                    container.innerHTML = '<p>No runs found.</p>';
+                    return;
+                }
+
+                container.innerHTML = runs.map(run => `
+                    <div class="run-item">
+                        <h3><a href="/api/runs/${run.id}">${run.id}</a></h3>
+                        <p><strong>Graph:</strong> ${run.graph_id}</p>
+                        <p><strong>Status:</strong> <span class="run-status ${run.status.toLowerCase()}">${run.status}</span></p>
+                        <p><strong>Started:</strong> ${new Date(run.start_time).toLocaleString()}</p>
+                        ${run.end_time ? `<p><strong>Ended:</strong> ${new Date(run.end_time).toLocaleString()}</p>` : ''}
+                        ${run.error ? `<p><strong>Error:</strong> ${run.error}</p>` : ''}
+                    </div>
+                `).join('');
+            } catch (error) {
+                document.getElementById('runs-container').innerHTML = `<p>Error loading runs: ${error.message}</p>`;
+            }
+        }
+
+        loadRuns();
+        setInterval(loadRuns, 5000); // Refresh every 5 seconds
+    </script>
+</body>
+
+</html>

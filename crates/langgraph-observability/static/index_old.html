@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LangGraph Observability Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .nav {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav a {
+            margin-right: 20px;
+            text-decoration: none;
+            color: #333;
+            font-weight: bold;
+        }
+
+        .nav a:hover {
+            color: #667eea;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .metric-label {
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>🔍 LangGraph Observability Dashboard</h1>
+        <p>Monitor and debug your LangGraph applications in real-time</p>
+    </div>
+
+    <div class="nav">
+        <a href="/">Dashboard</a>
+        <a href="/runs">Runs</a>
+        <a href="/metrics">Metrics</a>
+        <a href="/prompts">Prompts</a>
+    </div>
+
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-value" id="total-runs">-</div>
+            <div class="metric-label">Total Runs</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value" id="active-runs">-</div>
+            <div class="metric-label">Active Runs</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value" id="avg-duration">-</div>
+            <div class="metric-label">Avg Duration (s)</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value" id="success-rate">-</div>
+            <div class="metric-label">Success Rate (%)</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Recent Runs</h2>
+        <div id="recent-runs">Loading...</div>
+    </div>
+
+    <div class="card">
+        <h2>Real-time Events</h2>
+        <div id="events"
+            style="height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 4px;">
+            <div style="color: #666;">Connecting to event stream...</div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize WebSocket connection for real-time events
+        let ws;
+        const eventsDiv = document.getElementById('events');
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:3000/ws');
+
+            ws.onopen = function (event) {
+                eventsDiv.innerHTML = '<div style="color: green;">✅ Connected to event stream</div>';
+            };
+
+            ws.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+                const eventDiv = document.createElement('div');
+                eventDiv.style.marginBottom = '5px';
+                eventDiv.style.padding = '8px';
+                eventDiv.style.backgroundColor = 'white';
+                eventDiv.style.borderRadius = '4px';
+                eventDiv.style.borderLeft = '4px solid #667eea';
+
+                const timestamp = new Date().toLocaleTimeString();
+                eventDiv.innerHTML = `
+                    <div style="display: flex; justify-content: between;">
+                        <strong>${data.event_type || data.type || 'Event'}</strong>
+                        <span style="color: #999; font-size: 0.9em;">${timestamp}</span>
+                    </div>
+                    <div style="margin-top: 4px; font-size: 0.9em;">${JSON.stringify(data, null, 2)}</div>
+                `;
+
+                eventsDiv.insertBefore(eventDiv, eventsDiv.firstChild);
+
+                // Keep only last 20 events
+                while (eventsDiv.children.length > 20) {
+                    eventsDiv.removeChild(eventsDiv.lastChild);
+                }
+            };
+
+            ws.onclose = function (event) {
+                eventsDiv.innerHTML = '<div style="color: orange;">🔌 Connection closed - attempting to reconnect...</div>';
+                // Attempt to reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = function (error) {
+                eventsDiv.innerHTML = '<div style="color: red;">❌ Connection error</div>';
+            };
+        }
+
+        // Load dashboard data
+        async function loadDashboard() {
+            try {
+                // Load runs
+                const runsResponse = await fetch('/api/runs?limit=10');
+                const runsData = await runsResponse.json();
+
+                const totalRuns = runsData.runs.length;
+                document.getElementById('total-runs').textContent = totalRuns;
+
+                const activeRuns = runsData.runs.filter(r => r.status === 'Running').length;
+                document.getElementById('active-runs').textContent = activeRuns;
+
+                // Calculate average duration
+                const completedRuns = runsData.runs.filter(r => r.end_time);
+                if (completedRuns.length > 0) {
+                    const avgDuration = completedRuns.reduce((sum, run) => {
+                        const duration = (new Date(run.end_time) - new Date(run.start_time)) / 1000;
+                        return sum + duration;
+                    }, 0) / completedRuns.length;
+                    document.getElementById('avg-duration').textContent = avgDuration.toFixed(1);
+                }
+
+                // Calculate success rate
+                const successfulRuns = runsData.runs.filter(r => r.status === 'Completed').length;
+                const failedRuns = runsData.runs.filter(r => r.status === 'Failed').length;
+                const totalFinished = successfulRuns + failedRuns;
+                if (totalFinished > 0) {
+                    const successRate = (successfulRuns / totalFinished * 100);
+                    document.getElementById('success-rate').textContent = successRate.toFixed(1);
+                }
+
+                // Display recent runs
+                const recentRunsDiv = document.getElementById('recent-runs');
+                if (runsData.runs.length > 0) {
+                    const runsList = runsData.runs.map(run => `
+                        <div style="padding: 12px; margin: 8px 0; background: #f8f9fa; border-radius: 6px; border-left: 4px solid ${getStatusColor(run.status)};">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>Run ID:</strong> <a href="/runs/${run.id}" style="color: #667eea; text-decoration: none;">${run.id.substring(0, 8)}...</a><br>
+                                    <strong>Graph:</strong> ${run.graph_id}<br>
+                                    <strong>Status:</strong> <span style="color: ${getStatusColor(run.status)};">${run.status}</span>
+                                </div>
+                                <div style="text-align: right; color: #666; font-size: 0.9em;">
+                                    ${new Date(run.start_time).toLocaleString()}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                    recentRunsDiv.innerHTML = runsList;
+                } else {
+                    recentRunsDiv.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">No runs found</div>';
+                }
+
+            } catch (error) {
+                console.error('Error loading dashboard:', error);
+                document.getElementById('recent-runs').innerHTML = '<div style="color: red;">Error loading runs data</div>';
+            }
+        }
+
+        function getStatusColor(status) {
+            switch (status) {
+                case 'Running': return '#ffa500';
+                case 'Completed': return '#28a745';
+                case 'Failed': return '#dc3545';
+                case 'Cancelled': return '#6c757d';
+                default: return '#333';
+            }
+        }
+
+        // Initialize everything
+        connectWebSocket();
+        loadDashboard();
+
+        // Refresh data every 30 seconds
+        setInterval(loadDashboard, 30000);
+    </script>
+</body>
+
+</html>
