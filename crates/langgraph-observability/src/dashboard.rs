@@ -2,7 +2,7 @@
 
 use crate::config::DashboardConfig;
 use crate::error::{ObservabilityError, ObservabilityResult};
-use crate::events::{EventBus, EventStream, ObservabilityEvent};
+use crate::events::{EventBus, EventStream};
 #[cfg(feature = "frontend")]
 use crate::frontend;
 use crate::storage::{ObservabilityStorage, RunFilters};
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tower_http::{cors::CorsLayer, services::ServeDir};
+use tower_http::cors::CorsLayer;
 
 /// Dashboard server for observability UI
 pub struct Dashboard {

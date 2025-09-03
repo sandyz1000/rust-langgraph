@@ -106,28 +106,6 @@ impl<S> GraphRun<S> {
             None => (Utc::now() - self.start_time).num_milliseconds() as u64,
         }
     }
-
-    /// Convert to a GraphRun with JSON values for storage
-    pub fn to_json_run(&self) -> ObservabilityResult<GraphRun<serde_json::Value>>
-    where
-        S: Serialize,
-    {
-        Ok(GraphRun {
-            id: self.id.clone(),
-            graph_id: self.graph_id.clone(),
-            status: self.status,
-            start_time: self.start_time,
-            end_time: self.end_time,
-            initial_state: serde_json::to_value(&self.initial_state)?,
-            final_state: match &self.final_state {
-                Some(state) => Some(serde_json::to_value(state)?),
-                None => None,
-            },
-            error: self.error.clone(),
-            metadata: self.metadata.clone(),
-            config: self.config.clone(),
-        })
-    }
 }
 
 /// Run status

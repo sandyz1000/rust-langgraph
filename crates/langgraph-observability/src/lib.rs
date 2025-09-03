@@ -57,7 +57,6 @@ pub use storage::*;
 #[cfg(feature = "tracing")]
 pub use tracing::TracingObserver;
 
-use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -186,16 +185,10 @@ impl GraphObserver {
     }
 
     /// Observe a graph execution run
-    pub async fn observe_run<S>(&self, run: &GraphRun<S>) -> ObservabilityResult<()>
-    where
-        S: langgraph_core::GraphState + Serialize,
-    {
-        // Convert to JSON format for storage
-        let json_run = run.to_json_run()?;
-
+    pub async fn observe_run(&self, run: &GraphRun<serde_json::Value>) -> ObservabilityResult<()> {
         // Store the run
         let mut storage = self.storage.write().await;
-        storage.store_run(&json_run).await?;
+        storage.store_run(run).await?;
 
         // Publish event
         self.event_bus

@@ -6,10 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
-use uuid::Uuid;
 
 /// Event bus for distributing observability events
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct EventBus {
     sender: broadcast::Sender<ObservabilityEvent>,
     subscribers: Arc<RwLock<HashMap<String, EventSubscriber>>>,
@@ -63,31 +62,30 @@ impl EventBus {
 }
 
 /// Event subscriber
+// #[derive(Debug)]
 pub struct EventSubscriber {
     pub id: String,
     pub receiver: broadcast::Receiver<ObservabilityEvent>,
     pub callback: Arc<dyn Fn(ObservabilityEvent) -> Result<(), ObservabilityError> + Send + Sync>,
 }
 
-impl std::fmt::Debug for EventSubscriber {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EventSubscriber")
-            .field("id", &self.id)
-            .field("receiver", &"<receiver>")
-            .field("callback", &"<callback>")
-            .finish()
-    }
-}
-
 /// Events emitted by the observability system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ObservabilityEvent {
     /// Graph run started
-    RunStarted { run_id: String },
+    RunStarted {
+        run_id: String,
+    },
     /// Graph run completed
-    RunComplete { run_id: String, duration_ms: u64 },
+    RunComplete {
+        run_id: String,
+        duration_ms: u64,
+    },
     /// Graph run failed
-    RunFailed { run_id: String, error: String },
+    RunFailed {
+        run_id: String,
+        error: String,
+    },
     /// Node execution started
     NodeStarted {
         run_id: String,
@@ -233,17 +231,6 @@ pub enum EventFilter {
     NodeId(String),
     /// Custom filter function
     Custom(Arc<dyn Fn(&ObservabilityEvent) -> bool + Send + Sync>),
-}
-
-impl std::fmt::Debug for EventFilter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::RunId(run_id) => f.debug_tuple("RunId").field(run_id).finish(),
-            Self::EventType(event_type) => f.debug_tuple("EventType").field(event_type).finish(),
-            Self::NodeId(node_id) => f.debug_tuple("NodeId").field(node_id).finish(),
-            Self::Custom(_) => f.debug_tuple("Custom").field(&"<function>").finish(),
-        }
-    }
 }
 
 impl EventFilter {

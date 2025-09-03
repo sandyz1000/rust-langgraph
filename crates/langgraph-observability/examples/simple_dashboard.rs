@@ -9,63 +9,59 @@ use dioxus::prelude::*;
 #[cfg(feature = "frontend")]
 fn App() -> Element {
     rsx! {
-        html {
-            head {
-                title { "LangGraph Observability Dashboard" }
-                meta { charset: "utf-8" }
-                meta { name: "viewport", content: "width=device-width, initial-scale=1" }
-                style {
-                    r#"
-                    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-                    .header { background: #333; color: white; padding: 20px; margin: -20px -20px 20px -20px; }
-                    .nav { display: flex; gap: 20px; margin: 20px 0; }
-                    .nav a { color: #007bff; text-decoration: none; }
-                    .nav a:hover { text-decoration: underline; }
-                    .content { margin: 20px 0; }
-                    "#
-                }
+        div { class: "container",
+            style {
+                "
+                .container {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; }}
+                .header {{ background: #333; color: white; padding: 20px; margin: -20px -20px 20px -20px; border-radius: 5px; }}
+                .nav {{ display: flex; gap: 20px; margin: 20px 0; }}
+                .nav a {{ color: #007bff; text-decoration: none; }}
+                .nav a:hover {{ text-decoration: underline; }}
+                .content {{ margin: 20px 0; }}
+                .features {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }}
+                .feature-card {{ border: 1px solid #ddd; padding: 15px; border-radius: 5px; }}
+                "
             }
-            body {
-                div { class: "header",
-                    h1 { "🔍 LangGraph Observability Dashboard" }
-                    p { "Monitor and debug your LangGraph applications" }
-                }
-                nav { class: "nav",
-                    a { href: "/", "Home" }
-                    a { href: "/runs", "Runs" }
-                    a { href: "/metrics", "Metrics" }
-                    a { href: "/prompts", "Prompts" }
-                }
-                div { class: "content",
-                    h2 { "Welcome to LangGraph Observability" }
-                    p { "This is a Rust-native observability dashboard built with:" }
-                    ul {
-                        li { "🦀 Rust backend with Axum" }
-                        li { "⚛️ Dioxus frontend (SSR)" }
-                        li { "📊 Real-time metrics and tracing" }
-                        li { "🔍 Prompt debugging capabilities" }
-                    }
 
-                    div { style: "margin-top: 30px;",
-                        h3 { "Features" }
-                        div { style: "display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;",
-                            div { style: "border: 1px solid #ddd; padding: 15px; border-radius: 5px;",
-                                h4 { "📈 Real-time Monitoring" }
-                                p { "Track graph execution performance, latency, and throughput metrics in real-time." }
-                            }
-                            div { style: "border: 1px solid #ddd; padding: 15px; border-radius: 5px;",
-                                h4 { "🔍 Prompt Analysis" }
-                                p { "Debug and analyze LLM prompts, responses, and token usage patterns." }
-                            }
-                            div { style: "border: 1px solid #ddd; padding: 15px; border-radius: 5px;",
-                                h4 { "📊 Distributed Tracing" }
-                                p { "Visualize request flows across your LangGraph application components." }
-                            }
-                            div { style: "border: 1px solid #ddd; padding: 15px; border-radius: 5px;",
-                                h4 { "⚡ High Performance" }
-                                p { "Built with Rust for maximum performance and minimal resource usage." }
-                            }
-                        }
+            div { class: "header",
+                h1 { "🔍 LangGraph Observability Dashboard" }
+                p { "Monitor and debug your LangGraph applications" }
+            }
+
+            nav { class: "nav",
+                a { href: "/", "Home" }
+                a { href: "/runs", "Runs" }
+                a { href: "/metrics", "Metrics" }
+                a { href: "/prompts", "Prompts" }
+            }
+
+            div { class: "content",
+                h2 { "Welcome to LangGraph Observability" }
+                p { "This is a Rust-native observability dashboard built with:" }
+                ul {
+                    li { "🦀 Rust backend with Axum" }
+                    li { "⚛️ Dioxus frontend (SSR)" }
+                    li { "📊 Real-time metrics and tracing" }
+                    li { "🔍 Prompt debugging capabilities" }
+                }
+
+                h3 { "Features" }
+                div { class: "features",
+                    div { class: "feature-card",
+                        h4 { "📈 Real-time Monitoring" }
+                        p { "Track graph execution performance, latency, and throughput metrics in real-time." }
+                    }
+                    div { class: "feature-card",
+                        h4 { "🔍 Prompt Analysis" }
+                        p { "Debug and analyze LLM prompts, responses, and token usage patterns." }
+                    }
+                    div { class: "feature-card",
+                        h4 { "📊 Distributed Tracing" }
+                        p { "Visualize request flows across your LangGraph application components." }
+                    }
+                    div { class: "feature-card",
+                        h4 { "⚡ High Performance" }
+                        p { "Built with Rust for maximum performance and minimal resource usage." }
                     }
                 }
             }

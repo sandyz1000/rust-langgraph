@@ -1,81 +1,36 @@
 //! Distributed tracing for LangGraph applications
 
 use crate::config::TracingConfig;
-use crate::error::{ObservabilityError, ObservabilityResult};
-use crate::storage::{SpanEvent, SpanStatus, TraceSpan};
+use crate::error::ObservabilityResult;
+use crate::storage::{SpanStatus, TraceSpan};
 use chrono::{DateTime, Utc};
-#[cfg(feature = "tracing")]
-use opentelemetry::{
-    global,
-    sdk::{
-        trace::{self, Tracer},
-        Resource,
-    },
-    trace::{Span, SpanKind, Status, TraceContextExt, Tracer as _},
-    Context, KeyValue,
-};
-#[cfg(feature = "tracing")]
-use opentelemetry_jaeger::JaegerPipeline;
+use opentelemetry::trace::TraceContextExt;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
-/// Tracing observer that integrates with OpenTelemetry
+// TODO: Re-enable OpenTelemetry integration once dependencies are resolved
+// Currently disabled due to complex trait compatibility issues
+
+/// Tracing observer that integrates with standard Rust tracing (OpenTelemetry disabled for now)
 pub struct TracingObserver {
     config: TracingConfig,
-    tracer: Arc<dyn opentelemetry::trace::Tracer + Send + Sync>,
     active_spans: Arc<tokio::sync::RwLock<HashMap<String, TracingSpan>>>,
 }
 
 impl TracingObserver {
     /// Create a new tracing observer
     pub async fn new(config: TracingConfig) -> ObservabilityResult<Self> {
-        // Initialize OpenTelemetry tracer
-        let tracer = Self::init_tracer(&config).await?;
-
         // Initialize tracing subscriber
         Self::init_tracing_subscriber(&config)?;
 
         Ok(Self {
             config,
-            tracer,
             active_spans: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
         })
-    }
-
-    /// Initialize OpenTelemetry tracer
-    async fn init_tracer(
-        config: &TracingConfig,
-    ) -> ObservabilityResult<Arc<dyn opentelemetry::trace::Tracer + Send + Sync>> {
-        let resource = Resource::new(vec![
-            KeyValue::new("service.name", config.service_name.clone()),
-            KeyValue::new("service.version", "1.0.0"),
-        ]);
-
-        // Create tracer pipeline
-        let mut pipeline = opentelemetry_sdk::trace::TracerProvider::builder()
-            .with_resource(resource)
-            .with_sampler(trace::Sampler::TraceIdRatioBased(config.sample_rate));
-
-        // Configure exporter based on config
-        if let Some(ref jaeger_endpoint) = config.jaeger_endpoint {
-            info!("Configuring Jaeger tracing exporter: {}", jaeger_endpoint);
-            // Configure Jaeger exporter (simplified - would need full Jaeger setup)
-        }
-
-        if let Some(ref otlp_endpoint) = config.otlp_endpoint {
-            info!("Configuring OTLP tracing exporter: {}", otlp_endpoint);
-            // Configure OTLP exporter
-        }
-
-        let tracer_provider = pipeline.build();
-        global::set_tracer_provider(tracer_provider.clone());
-
-        let tracer = tracer_provider.tracer("langgraph-observability");
-        Ok(Arc::new(tracer))
     }
 
     /// Initialize tracing subscriber for structured logging
@@ -87,34 +42,31 @@ impl TracingObserver {
             .with(env_filter)
             .with(tracing_subscriber::fmt::layer().json());
 
-        // Add OpenTelemetry layer if tracing is enabled
-        if config.enabled {
-            let telemetry_layer = tracing_opentelemetry::layer()
-                .with_tracer(global::tracer("langgraph-observability"));
-            subscriber.with(telemetry_layer).init();
-        } else {
-            subscriber.init();
-        }
+        // TODO: Re-enable OpenTelemetry layer once dependency issues are resolved
+        subscriber.init();
 
+        info!("Tracing initialized with service: {}", config.service_name);
         Ok(())
     }
 
     /// Start a new span for a graph run
-    pub async fn start_run_span(&self, run_id: &str, graph_id: &str) -> ObservabilityResult<String> {
+    pub async fn start_run_span(
+        &self,
+        run_id: &str,
+        graph_id: &str,
+    ) -> ObservabilityResult<String> {
         let span_id = Uuid::new_v4().to_string();
-        let span = self
-            .tracer
-            .span_builder(format!("graph_run:{}", graph_id))
-            .with_kind(SpanKind::Server)
-            .with_attributes(vec![
-                KeyValue::new("run.id", run_id.to_string()),
-                KeyValue::new("graph.id", graph_id.to_string()),
-            ])
-            .start(&self.tracer);
+
+        // Use standard Rust tracing instead of OpenTelemetry for now
+        tracing::info!(
+            span_id = %span_id,
+            run_id = %run_id,
+            graph_id = %graph_id,
+            "Starting graph run span"
+        );
 
         let tracing_span = TracingSpan {
             id: span_id.clone(),
-            otel_span: Box::new(span),
             start_time: Utc::now(),
             attributes: HashMap::new(),
         };
@@ -134,30 +86,17 @@ impl TracingObserver {
     ) -> ObservabilityResult<String> {
         let span_id = Uuid::new_v4().to_string();
 
-        // Get parent context if available
-        let parent_context = if let Some(parent_id) = parent_span_id {
-            let spans = self.active_spans.read().await;
-            spans
-                .get(parent_id)
-                .map(|parent| Context::current_with_span(&*parent.otel_span))
-                .unwrap_or_else(Context::current)
-        } else {
-            Context::current()
-        };
-
-        let span = self
-            .tracer
-            .span_builder(format!("node:{}", node_id))
-            .with_kind(SpanKind::Internal)
-            .with_attributes(vec![
-                KeyValue::new("run.id", run_id.to_string()),
-                KeyValue::new("node.id", node_id.to_string()),
-            ])
-            .start_with_context(&self.tracer, &parent_context);
+        // Use standard Rust tracing instead of OpenTelemetry for now
+        tracing::info!(
+            span_id = %span_id,
+            run_id = %run_id,
+            node_id = %node_id,
+            parent_span_id = ?parent_span_id,
+            "Starting node execution span"
+        );
 
         let tracing_span = TracingSpan {
             id: span_id.clone(),
-            otel_span: Box::new(span),
             start_time: Utc::now(),
             attributes: HashMap::new(),
         };
@@ -177,8 +116,12 @@ impl TracingObserver {
     ) -> ObservabilityResult<()> {
         let mut spans = self.active_spans.write().await;
         if let Some(span) = spans.get_mut(span_id) {
-            span.otel_span
-                .set_attribute(KeyValue::new(key.to_string(), value.to_string()));
+            tracing::debug!(
+                span_id = %span_id,
+                key = %key,
+                value = %value,
+                "Adding span attribute"
+            );
             span.attributes
                 .insert(key.to_string(), Value::String(value.to_string()));
         }
@@ -193,13 +136,13 @@ impl TracingObserver {
         attributes: HashMap<String, Value>,
     ) -> ObservabilityResult<()> {
         let spans = self.active_spans.read().await;
-        if let Some(span) = spans.get(span_id) {
-            let otel_attributes: Vec<KeyValue> = attributes
-                .iter()
-                .map(|(k, v)| KeyValue::new(k.clone(), v.to_string()))
-                .collect();
-
-            span.otel_span.add_event(name.to_string(), otel_attributes);
+        if let Some(_span) = spans.get(span_id) {
+            tracing::info!(
+                span_id = %span_id,
+                event_name = %name,
+                attributes = ?attributes,
+                "Adding span event"
+            );
         }
         Ok(())
     }
@@ -207,8 +150,12 @@ impl TracingObserver {
     /// Finish a span
     pub async fn finish_span(&self, span_id: &str) -> ObservabilityResult<Option<TraceSpan>> {
         let mut spans = self.active_spans.write().await;
-        if let Some(mut span) = spans.remove(span_id) {
-            span.otel_span.end();
+        if let Some(span) = spans.remove(span_id) {
+            tracing::info!(
+                span_id = %span_id,
+                duration_ms = ?(Utc::now() - span.start_time).num_milliseconds(),
+                "Finishing span"
+            );
 
             let trace_span = TraceSpan {
                 span_id: span.id.clone(),
@@ -235,9 +182,13 @@ impl TracingObserver {
         error: &str,
     ) -> ObservabilityResult<Option<TraceSpan>> {
         let mut spans = self.active_spans.write().await;
-        if let Some(mut span) = spans.remove(span_id) {
-            span.otel_span.set_status(Status::error(error.to_string()));
-            span.otel_span.end();
+        if let Some(span) = spans.remove(span_id) {
+            tracing::error!(
+                span_id = %span_id,
+                error = %error,
+                duration_ms = ?(Utc::now() - span.start_time).num_milliseconds(),
+                "Finishing span with error"
+            );
 
             let trace_span = TraceSpan {
                 span_id: span.id.clone(),
@@ -266,10 +217,9 @@ impl TracingObserver {
     }
 }
 
-/// Internal span representation
+/// Internal span representation (simplified without OpenTelemetry for now)
 struct TracingSpan {
     id: String,
-    otel_span: Box<dyn opentelemetry::trace::Span + Send + Sync>,
     start_time: DateTime<Utc>,
     attributes: HashMap<String, Value>,
 }
@@ -320,8 +270,9 @@ macro_rules! trace_fn {
 
 /// Helper function to extract trace context from OpenTelemetry context
 pub fn extract_trace_context() -> TraceContext {
-    let context = Context::current();
-    let span_context = context.span().span_context();
+    let context = opentelemetry::Context::current();
+    let binding = context.span();
+    let span_context = binding.span_context();
 
     TraceContext {
         trace_id: span_context.trace_id().to_string(),

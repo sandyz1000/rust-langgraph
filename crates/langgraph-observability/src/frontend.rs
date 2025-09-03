@@ -1,7 +1,6 @@
 use dioxus::prelude::*;
 use dioxus_router::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[derive(Routable, Clone)]
 #[rustfmt::skip]

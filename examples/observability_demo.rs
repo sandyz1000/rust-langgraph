@@ -180,7 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Execute the graph with observability
         let start_time = std::time::Instant::now();
         
-        match compiled_graph.invoke(initial_state, config).await {
+        match compiled_graph.invoke(initial_state).await {
             Ok(final_state) => {
                 let duration = start_time.elapsed();
                 println!("✅ Execution completed in {:?}", duration);
