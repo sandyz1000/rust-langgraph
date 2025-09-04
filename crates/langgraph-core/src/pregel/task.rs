@@ -1,3 +1,4 @@
+#![allow(unused)]
 //! Task representation and execution for Pregel engine
 
 use crate::errors::{GraphResult, LangGraphError};
@@ -231,7 +232,6 @@ impl<S: GraphState> TaskResult<S> {
         self.output_state.as_ref()
     }
 
-    /// Convert to Result type
     pub fn into_result(self) -> Result<S, LangGraphError> {
         match self.status {
             TaskStatus::Completed => {

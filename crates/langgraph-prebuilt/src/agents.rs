@@ -5,6 +5,7 @@ use langgraph_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 
 /// Standard agent state for ReAct-style agents
@@ -201,7 +202,7 @@ fn create_reasoning_node(
 ) -> impl Fn(
     AgentState,
     ExecutionContext,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = GraphResult<AgentState>> + Send>>
+) -> std::pin::Pin<Box<dyn Future<Output = GraphResult<AgentState>> + Send>>
        + Send
        + Sync {
     let llm_arc = Arc::new(llm);

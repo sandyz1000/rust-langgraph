@@ -12,6 +12,7 @@ langgraph-core = { path = "crates/langgraph-core" }
 langgraph-checkpoint = { path = "crates/langgraph-checkpoint" }
 langgraph-runtime = { path = "crates/langgraph-runtime" }
 langgraph-prebuilt = { path = "crates/langgraph-prebuilt" }
+langgraph-observability = { path = "crates/langgraph-observability" }
 
 # Re-export common dependencies
 tokio = { version = "1.0", features = ["full"] }
@@ -22,6 +23,7 @@ anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 futures = "0.3"
 num_cpus = "1.17.0"
+chrono = "0.4.41"
 
 [workspace]
 members = [
@@ -30,6 +32,7 @@ members = [
     "crates/langgraph-runtime",
     "crates/langgraph-prebuilt",
     "crates/langgraph-cli",
+    "crates/langgraph-observability",
 ]
 
 [workspace.dependencies]
@@ -53,3 +56,23 @@ path = "examples/advanced_workflow.rs"
 [[example]]
 name = "streaming"
 path = "examples/streaming.rs"
+
+[[example]]
+name = "managed"
+path = "examples/managed.rs"
+
+[[example]]
+name = "branching"
+path = "examples/branching.rs"
+
+[[example]]
+name = "configuration"
+path = "examples/configuration.rs"
+
+[[example]]
+name = "state_model"
+path = "examples/state_model.rs"
+
+[[example]]
+name = "recursion_limit"
+path = "examples/recursion_limit.rs"

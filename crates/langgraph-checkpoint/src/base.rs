@@ -8,8 +8,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 /// Checkpoint data structure
-#[derive(Debug, Clone, Serialize)]
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "S: for<'de2> Deserialize<'de2>")]
 pub struct Checkpoint<S: GraphState> {
     /// Checkpoint version
@@ -417,22 +416,20 @@ impl NodeExecution {
         self.duration_ms = Some((Utc::now() - self.started_at).num_milliseconds() as u64);
     }
 
-    /// Mark execution as interrupted
     pub fn interrupt(&mut self) {
         self.status = ExecutionStatus::Interrupted;
         self.completed_at = Some(Utc::now());
         self.duration_ms = Some((Utc::now() - self.started_at).num_milliseconds() as u64);
     }
 
-    /// Check if execution is complete (successful or failed)
-    pub fn is_complete(&self) -> bool {
-        matches!(
-            self.status,
-            ExecutionStatus::Completed | ExecutionStatus::Failed | ExecutionStatus::Interrupted
-        )
+    pub fn is_failed(&self) -> bool {
+        matches!(self.status, ExecutionStatus::Failed | ExecutionStatus::Interrupted)
     }
 
-    /// Check if execution was successful
+    pub fn is_running(&self) -> bool {
+        matches!(self.status, ExecutionStatus::Running)
+    }
+
     pub fn is_successful(&self) -> bool {
         matches!(self.status, ExecutionStatus::Completed)
     }

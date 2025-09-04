@@ -180,7 +180,6 @@ Always verify information from multiple sources when possible."#.to_string()
     }
 }
 
-/// Prompt formatting utilities
 pub struct PromptFormatter;
 
 impl PromptFormatter {
