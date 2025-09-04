@@ -2,7 +2,6 @@
 
 use crate::error::{ObservabilityError, ObservabilityResult};
 use crate::storage::{PromptExecution, TokenUsage};
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

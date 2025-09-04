@@ -11,7 +11,8 @@ name = "simple_dashboard"
 required-features = []
 
 [features]
-default = ["storage"]
+# default = ["storage"]
+default = ["storage", "metrics", "tracing", "frontend"]
 storage = ["dep:sqlx"]
 metrics = ["dep:metrics-exporter-prometheus"]
 tracing = [

@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use dashmap::DashMap;
 use langgraph_core::{GraphResult, GraphState, LangGraphError};
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -26,7 +27,8 @@ pub struct InMemoryCheckpointer {
 #[derive(Debug, Clone)]
 struct CheckpointData {
     /// Serialized checkpoint
-    checkpoint_json: String,
+    // TODO: Replace this to serde_json::Value
+    checkpoint_json: Value,
     /// Pending writes
     pending_writes: Vec<PendingWrite>,
     /// Storage timestamp
@@ -55,6 +57,35 @@ impl Default for InMemoryConfig {
             max_total_checkpoints: 10000,
             auto_cleanup: true,
             cleanup_interval_seconds: 300, // 5 minutes
+        }
+    }
+}
+
+trait JsonSize {
+    fn serialized_mem_size(&self) -> usize;
+}
+
+impl JsonSize for serde_json::Value {
+    fn serialized_mem_size(&self) -> usize {
+        match self {
+            Value::Null => std::mem::size_of::<Value>(),
+            Value::Bool(_) => std::mem::size_of::<Value>(),
+            Value::Number(_) => std::mem::size_of::<Value>(),
+            Value::String(s) => std::mem::size_of::<Value>() + s.len(),
+            Value::Array(arr) => {
+                std::mem::size_of::<Value>()
+                    + arr
+                        .iter()
+                        .map(|v| Self::serialized_mem_size(v))
+                        .sum::<usize>()
+            }
+            Value::Object(obj) => {
+                std::mem::size_of::<Value>()
+                    + obj
+                        .iter()
+                        .map(|(k, v)| k.len() + Self::serialized_mem_size(v))
+                        .sum::<usize>()
+            }
         }
     }
 }
@@ -235,10 +266,10 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
         _metadata: CheckpointMetadata,
     ) -> GraphResult<()> {
         // Serialize checkpoint
-        let checkpoint_json = serde_json::to_string(&checkpoint)
+        let checkpoint_json = serde_json::to_value(&checkpoint)
             .map_err(|e| LangGraphError::Serialization { source: e })?;
 
-        let size_bytes = checkpoint_json.len();
+        let size_bytes = checkpoint_json.serialized_mem_size();
 
         let checkpoint_data = CheckpointData {
             checkpoint_json,
@@ -269,7 +300,7 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
 
         if let Some(data) = thread_storage.get(checkpoint_id) {
             // Deserialize the checkpoint from JSON
-            let checkpoint: Checkpoint<S> = serde_json::from_str(&data.checkpoint_json)
+            let checkpoint: Checkpoint<S> = serde_json::from_value(data.checkpoint_json.clone())
                 .map_err(|e| LangGraphError::Serialization { source: e })?;
 
             return Ok(Some(CheckpointTuple {
@@ -307,7 +338,7 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
         if let Some((_checkpoint_id, data)) = latest_entry {
             // Deserialize the checkpoint data
             let checkpoint: Checkpoint<S> =
-                serde_json::from_str(&data.checkpoint_json).map_err(|e| {
+                serde_json::from_value(data.checkpoint_json.clone()).map_err(|e| {
                     LangGraphError::runtime(format!("Failed to deserialize checkpoint: {}", e))
                 })?;
 
@@ -356,7 +387,7 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
         let mut result = Vec::new();
         for (_checkpoint_id, data) in entries {
             let checkpoint: Checkpoint<S> =
-                serde_json::from_str(&data.checkpoint_json).map_err(|e| {
+                serde_json::from_value(data.checkpoint_json.clone()).map_err(|e| {
                     LangGraphError::runtime(format!("Failed to deserialize checkpoint: {}", e))
                 })?;
 

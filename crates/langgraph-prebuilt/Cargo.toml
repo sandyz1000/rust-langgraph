@@ -19,3 +19,8 @@ langgraph-runtime = { path = "../langgraph-runtime" }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[dependencies.langchain-rust]
+# Path or version should be adjusted to your local/external crate
+path = "/home/sandipdey/Documents/AppDev/langchain-rust"
+version = "*"

@@ -1,11 +1,11 @@
 //! Observability Example - Demonstrates LangGraph observability and debugging features
-//! 
+//!
 //! This example shows how to use the LangGraph observability toolkit to monitor
 //! and debug graph execution, similar to LangSmith functionality.
 
 use langgraph_observability::{
-    Observability, ObservabilityConfig, StorageConfig, TracingConfig, MetricsConfig, 
-    DashboardConfig, PromptAnalyzer, PromptAnalysisConfig
+    prompt_analysis::PromptAnalysisConfig, Observability, ObservabilityConfig, PromptAnalyzer,
+    StorageConfig,
 };
 use rust_langgraph::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -21,17 +21,14 @@ struct ChatState {
 }
 
 // Simulated LLM call node with observability
-async fn llm_node(
-    state: ChatState, 
-    context: ExecutionContext
-) -> GraphResult<ChatState> {
+async fn llm_node(state: ChatState, _context: ExecutionContext) -> GraphResult<ChatState> {
     println!("🤖 LLM processing: {}", state.user_input);
-    
+
     // Simulate LLM processing time
     sleep(Duration::from_millis(500)).await;
 
     let mut messages = state.messages;
-    
+
     // Simulate different responses based on input
     let response = if state.user_input.to_lowercase().contains("hello") {
         "Hello! How can I help you today?"
@@ -53,12 +50,9 @@ async fn llm_node(
 }
 
 // Analysis node with metrics collection
-async fn analysis_node(
-    state: ChatState, 
-    _context: ExecutionContext
-) -> GraphResult<ChatState> {
+async fn analysis_node(state: ChatState, _context: ExecutionContext) -> GraphResult<ChatState> {
     println!("📊 Analyzing conversation...");
-    
+
     // Simulate analysis processing
     sleep(Duration::from_millis(200)).await;
 
@@ -69,8 +63,10 @@ async fn analysis_node(
     };
 
     let mut messages = state.messages;
-    messages.push(format!("Analysis: Sentiment is {}, {} messages processed", 
-                         sentiment, state.step_count));
+    messages.push(format!(
+        "Analysis: Sentiment is {}, {} messages processed",
+        sentiment, state.step_count
+    ));
 
     Ok(ChatState {
         messages,
@@ -155,13 +151,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     println!("\n🧪 Running test scenarios...");
-    
+
     for (i, user_input) in test_scenarios.iter().enumerate() {
         println!("\n--- Scenario {} ---", i + 1);
         println!("User: {}", user_input);
 
         // Start observing this run
-        let run_id = graph_observer.start_run("observability-chat-agent".to_string()).await?;
+        let run_id = graph_observer
+            .start_run("observability-chat-agent".to_string())
+            .await?;
         println!("📝 Started run: {}", run_id);
 
         // Create initial state
@@ -173,22 +171,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // Create execution context with observability metadata
-        let mut config = GraphConfig::new();
-        config.set_config("run_id", run_id.clone())?;
-        config.set_config("scenario", format!("test_{}", i + 1))?;
+        let config = GraphConfig::new()
+            .with_config("run_id", run_id.clone())?
+            .with_config("scenario", format!("test_{}", i + 1))?;
 
         // Execute the graph with observability
         let start_time = std::time::Instant::now();
-        
-        match compiled_graph.invoke(initial_state).await {
+
+        match compiled_graph
+            .invoke_with_config(initial_state, config)
+            .await
+        {
             Ok(final_state) => {
                 let duration = start_time.elapsed();
                 println!("✅ Execution completed in {:?}", duration);
                 println!("📊 Final state: {} messages", final_state.messages.len());
-                
+
                 // Simulate prompt analysis
                 let prompt_analyzer = PromptAnalyzer::new(PromptAnalysisConfig::default());
-                
+
                 // Create a mock prompt execution for analysis
                 let mock_prompt = langgraph_observability::storage::PromptExecution {
                     id: uuid::Uuid::new_v4().to_string(),
@@ -202,7 +203,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         output_tokens: (final_state.context.len() / 4) as u32,
                         total_tokens: ((user_input.len() + final_state.context.len()) / 4) as u32,
                     },
-                    start_time: chrono::Utc::now() - chrono::Duration::milliseconds(duration.as_millis() as i64),
+                    start_time: chrono::Utc::now()
+                        - chrono::Duration::milliseconds(duration.as_millis() as i64),
                     end_time: chrono::Utc::now(),
                     metadata: std::collections::HashMap::new(),
                 };
@@ -220,24 +222,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // Publish completion event
-                observability.event_bus().publish(
-                    langgraph_observability::ObservabilityEvent::RunComplete {
+                observability
+                    .event_bus()
+                    .publish(langgraph_observability::ObservabilityEvent::RunComplete {
                         run_id: run_id.clone(),
                         duration_ms: duration.as_millis() as u64,
-                    }
-                ).await?;
-
+                    })
+                    .await?;
             }
             Err(e) => {
                 println!("❌ Execution failed: {}", e);
-                
+
                 // Publish failure event
-                observability.event_bus().publish(
-                    langgraph_observability::ObservabilityEvent::RunFailed {
+                observability
+                    .event_bus()
+                    .publish(langgraph_observability::ObservabilityEvent::RunFailed {
                         run_id: run_id.clone(),
                         error: e.to_string(),
-                    }
-                ).await?;
+                    })
+                    .await?;
             }
         }
 
@@ -251,7 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📊 Metrics endpoint: http://localhost:3000/api/metrics");
     println!("🔍 Runs endpoint: http://localhost:3000/api/runs");
     println!("⚡ Real-time events: ws://localhost:3000/ws");
-    
+
     println!("\n📋 Features Available:");
     println!("• Real-time graph execution monitoring");
     println!("• Detailed run traces and spans");
@@ -262,14 +265,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n⏰ Keeping server running for 5 minutes...");
     println!("   Open http://localhost:3000 in your browser to explore!");
-    
+
     // Keep the server running for demonstration
     sleep(Duration::from_secs(300)).await;
 
     // Cleanup
     println!("\n🧹 Shutting down observability system...");
     observability.shutdown().await?;
-    
+
     println!("✅ Example completed successfully!");
     Ok(())
 }

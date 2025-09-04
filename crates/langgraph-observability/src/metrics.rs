@@ -1,10 +1,9 @@
 //! Metrics collection for LangGraph applications
 
 use crate::config::MetricsConfig;
-use crate::error::{ObservabilityError, ObservabilityResult};
+use crate::error::ObservabilityResult;
 use crate::storage::MetricsSnapshot;
-use chrono::{DateTime, Utc};
-use metrics::{counter, gauge, histogram, Counter, Gauge, Histogram};
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

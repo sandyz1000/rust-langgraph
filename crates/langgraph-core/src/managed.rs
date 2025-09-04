@@ -1,6 +1,82 @@
 //! Managed values for special state handling in LangGraph
+//!
+//! This module provides reusable, concurrency-safe primitives that map to
+//! Python LangGraph's managed values (for example `IsLastStep` and
+//! `RemainingSteps`). In Rust we expose helpers and concrete types such as
+//! `ConversationMemory` and `ComputationCache` that you can use directly in
+//! node functions.
+//!
+//! Examples
+//! --------
+//! Conversation memory (chat-style):
+//!
+//! ```rust
+//! use langgraph_core::managed::{ConversationMemory, Message};
+//! use chrono::Utc;
+//! use std::collections::HashMap;
+//!
+//! # #[tokio::main]
+//! # async fn main() -> langgraph_core::GraphResult<()> {
+//! let memory = ConversationMemory::new();
+//!
+//! memory.add_message(Message {
+//!     id: "1".into(),
+//!     role: "user".into(),
+//!     content: "Hello".into(),
+//!     timestamp: Utc::now(),
+//!     metadata: HashMap::new(),
+//! }).await?;
+//!
+//! memory.add_message(Message {
+//!     id: "2".into(),
+//!     role: "assistant".into(),
+//!     content: "Hi! How can I help?".into(),
+//!     timestamp: Utc::now(),
+//!     metadata: HashMap::new(),
+//! }).await?;
+//!
+//! let recent = memory.get_recent_messages(2).await;
+//! assert_eq!(recent.len(), 2);
+//! # Ok(()) }
+//! ```
+//!
+//! Computation cache:
+//!
+//! ```rust
+//! use langgraph_core::managed::ComputationCache;
+//!
+//! # #[tokio::main]
+//! # async fn main() -> langgraph_core::GraphResult<()> {
+//! let cache: ComputationCache<String, usize> = ComputationCache::new();
+//! let input = "expensive".to_string();
+//!
+//! if let Some(v) = cache.get(&input).await {
+//!     // cache hit
+//!     assert!(v >= 0);
+//! } else {
+//!     // miss -> compute and store
+//!     let value = 42usize; // pretend expensive
+//!     cache.put(input.clone(), value).await?;
+//!     assert!(cache.contains(&input).await);
+//! }
+//! # Ok(()) }
+//! ```
+//!
+//! Last-step helpers (analogous to Python `IsLastStep` and `RemainingSteps`):
+//!
+//! ```rust
+//! use langgraph_core::{ExecutionContext};
+//! use langgraph_core::managed::{is_last_step, remaining_steps};
+//!
+//! let mut ctx = ExecutionContext::new("node", "graph");
+//! ctx.step = 2; // zero-based step index
+//! let stop = 3; // total number of steps
+//! assert!(is_last_step(&ctx, stop));
+//! assert_eq!(remaining_steps(&ctx, stop), 1);
+//! ```
 
 use crate::errors::GraphResult;
+use crate::types::ExecutionContext;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -271,7 +347,7 @@ where
     /// Get a value from cache
     pub async fn get(&self, key: &K) -> Option<V> {
         let mut cache = self.cache.write().await;
-        
+
         if let Some(entry) = cache.get_mut(key) {
             // Check TTL
             if let Some(ttl) = self.config.ttl_seconds {
@@ -285,7 +361,7 @@ where
             // Update access info
             entry.accessed_at = chrono::Utc::now();
             entry.access_count += 1;
-            
+
             Some(entry.value.clone())
         } else {
             None
@@ -309,7 +385,7 @@ where
             accessed_at: now,
             access_count: 1,
         };
-        
+
         cache.insert(key, entry);
         Ok(())
     }
@@ -454,7 +530,7 @@ impl ManagedValueManager {
     pub async fn stats(&self) -> ManagedValueStats {
         let values = self.values.read().await;
         let mut type_counts = HashMap::new();
-        
+
         for value in values.values() {
             let type_name = value.type_name();
             *type_counts.entry(type_name.to_string()).or_insert(0) += 1;
@@ -494,4 +570,21 @@ where
     V: Clone + Send + Sync + 'static,
 {
     ComputationCache::new()
+}
+
+/// Returns true if the current step is the final step before termination.
+///
+/// Mirrors Python `IsLastStepManager.get(...)` which checks
+/// `scratchpad.step == scratchpad.stop - 1`.
+pub fn is_last_step(ctx: &ExecutionContext, stop: u32) -> bool {
+    // ctx.step is zero-based; `stop` is the total number of steps.
+    ctx.step == stop.saturating_sub(1)
+}
+
+/// Returns the number of remaining steps including the current one.
+///
+/// Mirrors Python `RemainingStepsManager.get(...)` which returns
+/// `scratchpad.stop - scratchpad.step`.
+pub fn remaining_steps(ctx: &ExecutionContext, stop: u32) -> u32 {
+    stop.saturating_sub(ctx.step)
 }
