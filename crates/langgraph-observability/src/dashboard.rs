@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
+use serde_json::Value as JsonValue;
 
 /// Dashboard server for observability UI
 pub struct Dashboard {
@@ -142,7 +143,7 @@ async fn list_runs(
 async fn get_run(
     Path(run_id): Path<String>,
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<JsonValue>, StatusCode> {
     let storage = state.storage.read().await;
     match storage.get_run(&run_id).await {
         Ok(Some(run)) => Ok(Json(serde_json::to_value(run).unwrap())),
@@ -155,7 +156,7 @@ async fn get_run(
 async fn get_run_spans(
     Path(run_id): Path<String>,
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<JsonValue>, StatusCode> {
     let storage = state.storage.read().await;
     match storage.get_spans(&run_id).await {
         Ok(spans) => Ok(Json(serde_json::to_value(spans).unwrap())),
@@ -167,7 +168,7 @@ async fn get_run_spans(
 async fn get_run_prompts(
     Path(run_id): Path<String>,
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<JsonValue>, StatusCode> {
     let storage = state.storage.read().await;
     match storage.get_prompts(&run_id).await {
         Ok(prompts) => Ok(Json(serde_json::to_value(prompts).unwrap())),
@@ -179,7 +180,7 @@ async fn get_run_prompts(
 async fn get_metrics(
     Query(params): Query<MetricsParams>,
     State(state): State<AppState>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<JsonValue>, StatusCode> {
     let storage = state.storage.read().await;
     let start_time = chrono::Utc::now() - chrono::Duration::hours(params.hours.unwrap_or(24));
     let end_time = chrono::Utc::now();
@@ -191,7 +192,7 @@ async fn get_metrics(
 }
 
 /// Health check endpoint
-async fn health_check() -> Json<serde_json::Value> {
+async fn health_check() -> Json<JsonValue> {
     Json(serde_json::json!({
         "status": "healthy",
         "timestamp": chrono::Utc::now()
@@ -322,7 +323,7 @@ async fn serve_static_assets(Path(_file): Path<String>) -> Result<&'static str, 
 /// List all prompts endpoint
 async fn get_prompts(
     State(_state): State<AppState>,
-) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+) -> Result<Json<Vec<JsonValue>>, StatusCode> {
     // For now, return empty list - this would be implemented with actual storage
     Ok(Json(vec![]))
 }
@@ -339,7 +340,7 @@ struct RunListParams {
 /// Response for listing runs
 #[derive(Debug, Serialize)]
 struct RunListResponse {
-    runs: Vec<crate::storage::GraphRun<serde_json::Value>>,
+    runs: Vec<crate::storage::GraphRun<JsonValue>>,
 }
 
 /// Query parameters for metrics

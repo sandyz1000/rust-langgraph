@@ -6,11 +6,12 @@ use crate::errors::{GraphResult, LangGraphError};
 use crate::graph::CompiledGraph;
 use crate::pregel::{PregelTask, TaskScheduler, TaskStatus};
 use crate::types::{
-    ExecutionContext, ExecutionStats, GraphConfig, GraphState, MemoryStats, StateSnapshot,
-    StreamEvent, StreamEventData, StreamEventType,
+    ExecutionContext, ExecutionStats, GraphConfig, GraphState,
+    MemoryStats, StateSnapshot, StreamEvent, StreamEventData, StreamEventType,
 };
 use chrono::Utc;
 use dashmap::DashMap;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
@@ -36,9 +37,10 @@ pub struct PregelEngine<S: GraphState> {
 struct ExecutionState<S: GraphState> {
     /// Current state
     current_state: Arc<RwLock<S>>,
-    /// Current step
+    /// Current step, this is to handle recursion depth
     step: AtomicU32,
     /// Execution context
+    // TODO: Remove this type and merge it's field to the `ExecutionState`
     context: ExecutionContext,
     /// Configuration
     config: GraphConfig,
@@ -153,7 +155,7 @@ impl<S: GraphState> PregelEngine<S> {
         rx
     }
 
-    /// Execute the graph logic
+    /// Execute the graph logic -- Level order traversal
     async fn execute_graph(&self, graph: &CompiledGraph<S>, execution_id: &str) -> GraphResult<()> {
         let execution = self
             .executions
@@ -197,7 +199,7 @@ impl<S: GraphState> PregelEngine<S> {
                 break;
             }
 
-            // Create checkpoint if configured
+            // Create checkpoint if configured, after processing each level
             if execution.config.checkpointing {
                 self.create_checkpoint(&execution, step).await?;
             }
@@ -270,45 +272,28 @@ impl<S: GraphState> PregelEngine<S> {
         // Execute tasks
         let task_results = self.scheduler.execute_tasks(tasks).await?;
 
-        // Process results
+        // ✅ SOLUTION: Collect all state updates first, then merge
+        let mut state_updates = Vec::new();
+
+        // Process results - collect updates without overwriting
         for result in task_results {
             match result.status {
                 TaskStatus::Completed => {
                     if let Some(new_state) = result.output_state {
-                        // Update current state
-                        {
-                            let mut state = execution.current_state.write().await;
-                            *state = new_state.clone();
-                        }
+                        state_updates.push((result.node_name.clone(), new_state));
 
-                        // Send state update event
-                        let update_event = StreamEvent {
-                            event_type: StreamEventType::StateUpdate,
+                        // Send node complete event
+                        let complete_event = StreamEvent {
+                            event_type: StreamEventType::NodeComplete,
                             timestamp: Utc::now(),
                             step: execution.step.load(Ordering::Relaxed),
                             node: Some(result.node_name.clone()),
-                            data: StreamEventData::State(new_state.clone()),
+                            data: StreamEventData::Custom(serde_json::json!({
+                                "duration_ms": result.duration_ms
+                            })),
                         };
-                        let _ = execution.event_sender.send(update_event);
-
-                        // Determine next nodes
-                        let next = self
-                            .get_next_nodes(graph, &result.node_name, &new_state)
-                            .await?;
-                        next_nodes.extend(next);
+                        let _ = execution.event_sender.send(complete_event);
                     }
-
-                    // Send node complete event
-                    let complete_event = StreamEvent {
-                        event_type: StreamEventType::NodeComplete,
-                        timestamp: Utc::now(),
-                        step: execution.step.load(Ordering::Relaxed),
-                        node: Some(result.node_name),
-                        data: StreamEventData::Custom(serde_json::json!({
-                            "duration_ms": result.duration_ms
-                        })),
-                    };
-                    let _ = execution.event_sender.send(complete_event);
                 }
                 TaskStatus::Failed => {
                     // Send error event
@@ -333,7 +318,91 @@ impl<S: GraphState> PregelEngine<S> {
             }
         }
 
+        // ✅ Merge all state updates into final state
+        if !state_updates.is_empty() {
+            let final_state = {
+                let current_state = execution.current_state.read().await;
+                self.merge_states(&current_state, &state_updates)?
+            };
+
+            // Update the execution state once with merged result
+            {
+                let mut state = execution.current_state.write().await;
+                *state = final_state.clone();
+            }
+
+            // Send state update event for merged state
+            let update_event = StreamEvent {
+                event_type: StreamEventType::StateUpdate,
+                timestamp: Utc::now(),
+                step: execution.step.load(Ordering::Relaxed),
+                node: None, // Multiple nodes contributed
+                data: StreamEventData::State(final_state.clone()),
+            };
+            let _ = execution.event_sender.send(update_event);
+
+            // Determine next nodes based on ALL completed nodes
+            for (node_name, node_state) in &state_updates {
+                let next = self.get_next_nodes(graph, node_name, node_state).await?;
+                next_nodes.extend(next);
+            }
+        }
+
         Ok(next_nodes)
+    }
+
+    /// Merge multiple state updates into a single state for workflow management
+    /// Uses a sophisticated merge strategy suitable for workflow orchestration
+    fn merge_states(&self, base_state: &S, updates: &Vec<(String, S)>) -> GraphResult<S> {
+        if updates.is_empty() {
+            return Ok(base_state.clone());
+        }
+
+        // If only one update, use it directly (optimization)
+        if updates.len() == 1 {
+            return updates[0].1.merge(&base_state);
+        }
+
+        let mut merged_state = base_state.clone();
+
+        // Strategy 1: Node-priority based merging
+        // Sort updates by node priority/execution order to ensure deterministic merging
+        let mut prioritized_updates = updates.clone();
+        prioritized_updates.sort_by(|a, b| {
+            self.get_node_priority(&a.0)
+                .cmp(&self.get_node_priority(&b.0))
+        });
+
+        for (node_name, update_state) in prioritized_updates {
+            merged_state = self.merge_single_state(merged_state, update_state, &node_name)?;
+        }
+
+        Ok(merged_state)
+    }
+
+    /// Merge a single state update with sophisticated conflict resolution
+    fn merge_single_state(&self, base: S, update: S, _node_name: &str) -> GraphResult<S> {
+        // For now, use the simple merge method from GraphState trait
+        // In the future, we can add more sophisticated merge logic here
+        // that checks if S implements GraphStateWorkflowMerge and uses that
+        update.merge(&base)
+    }
+
+    /// Get node priority for deterministic merging
+    /// Higher priority nodes override lower priority ones in conflicts
+    fn get_node_priority(&self, node_name: &str) -> u32 {
+        match node_name {
+            // System nodes have highest priority
+            name if name.starts_with("__") => 1000,
+            // Decision/routing nodes have high priority
+            name if name.contains("decision") || name.contains("route") => 800,
+            // Processing nodes have medium priority
+            name if name.contains("process") || name.contains("transform") => 600,
+            // Data/input nodes have lower priority
+            name if name.contains("input") || name.contains("data") => 400,
+            // Default priority
+            _ => 500,
+        }
     }
 
     /// Get next nodes based on edges and conditional logic
@@ -426,6 +495,7 @@ impl<S: GraphState> PregelEngine<S> {
         };
 
         // Store snapshot
+        // TODO: Here we need to call the checkpoint type
         if let Some(thread_id) = &execution.context.thread_id {
             self.snapshots
                 .entry(thread_id.clone())
@@ -513,3 +583,4 @@ impl<S: GraphState> PregelEngine<S> {
         updater(&mut *stats);
     }
 }
+

@@ -6,6 +6,7 @@ use langgraph_core::{GraphResult, GraphState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
+use serde_json::Value as JsonValue;
 
 /// Checkpoint data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,7 +25,7 @@ pub struct Checkpoint<S: GraphState> {
     /// Next nodes to execute
     pub next_nodes: Vec<String>,
     /// Channel values
-    pub channel_values: HashMap<String, serde_json::Value>,
+    pub channel_values: HashMap<String, JsonValue>,
     /// Channel versions
     pub channel_versions: HashMap<String, u64>,
     /// Node execution history
@@ -45,19 +46,19 @@ pub struct CheckpointMetadata {
     /// Parent checkpoint IDs
     pub parents: HashMap<String, String>,
     /// Custom metadata fields
-    pub custom: HashMap<String, serde_json::Value>,
+    pub custom: HashMap<String, JsonValue>,
 }
 
 /// Source of a checkpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CheckpointSource {
-    /// Checkpoint from initial input
+    /// The checkpoint was created from an input to invoke/stream/batch.
     Input,
-    /// Checkpoint from graph execution loop
+    /// Checkpoint from inside the graph execution loop
     Loop,
     /// Checkpoint from manual state update
     Update,
-    /// Checkpoint created as a copy/fork
+    /// Checkpoint created as a copy/fork of another checkpoint
     Fork,
     /// Checkpoint from error/interrupt
     Interrupt,
@@ -75,9 +76,9 @@ pub struct NodeExecution {
     /// Execution status
     pub status: ExecutionStatus,
     /// Input state for the node
-    pub input_state: serde_json::Value,
+    pub input_state: JsonValue,
     /// Output state from the node
-    pub output_state: Option<serde_json::Value>,
+    pub output_state: Option<JsonValue>,
     /// Error message if failed
     pub error: Option<String>,
     /// Execution duration in milliseconds
@@ -100,6 +101,7 @@ pub enum ExecutionStatus {
 }
 
 /// Checkpoint tuple for storage operations
+// TODO: Find or write the usage of CheckpointTuple,  
 #[derive(Debug, Clone)]
 pub struct CheckpointTuple<S: GraphState> {
     /// The checkpoint data
@@ -118,7 +120,7 @@ pub struct PendingWrite {
     /// Operation type
     pub operation: WriteOperation,
     /// Value to write
-    pub value: serde_json::Value,
+    pub value: JsonValue,
 }
 
 /// Write operation types
@@ -144,7 +146,7 @@ pub struct CheckpointConfig {
     /// Whether to store full state or deltas
     pub store_deltas: bool,
     /// Custom configuration
-    pub custom: HashMap<String, serde_json::Value>,
+    pub custom: HashMap<String, JsonValue>,
 }
 
 impl Default for CheckpointConfig {
@@ -381,7 +383,7 @@ impl Default for CheckpointMetadata {
 
 impl NodeExecution {
     /// Create a new node execution record
-    pub fn new(node_name: impl Into<String>, input_state: serde_json::Value) -> Self {
+    pub fn new(node_name: impl Into<String>, input_state: JsonValue) -> Self {
         Self {
             node_name: node_name.into(),
             started_at: Utc::now(),
@@ -401,7 +403,7 @@ impl NodeExecution {
     }
 
     /// Mark execution as completed
-    pub fn complete(&mut self, output_state: serde_json::Value) {
+    pub fn complete(&mut self, output_state: JsonValue) {
         self.status = ExecutionStatus::Completed;
         self.completed_at = Some(Utc::now());
         self.output_state = Some(output_state);

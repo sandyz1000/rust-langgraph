@@ -31,7 +31,6 @@ members = [
     "crates/langgraph-checkpoint",
     "crates/langgraph-runtime",
     "crates/langgraph-prebuilt",
-    "crates/langgraph-cli",
     "crates/langgraph-observability",
 ]
 
@@ -76,3 +75,7 @@ path = "examples/state_model.rs"
 [[example]]
 name = "recursion_limit"
 path = "examples/recursion_limit.rs"
+
+[[example]]
+name = "checkpoint"
+path = "examples/checkpoint.rs"

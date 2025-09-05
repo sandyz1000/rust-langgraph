@@ -8,11 +8,17 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
 use uuid::Uuid;
+use serde_json::Value as JsonValue;
 
 /// Trait for types that can be used as graph state
 pub trait GraphState:
     Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static
 {
+    /// Merge this state with another state
+    /// Default implementation uses the other state (last writer wins)
+    fn merge(&self, other: &Self) -> GraphResult<Self> {
+        Ok(other.clone())
+    }
 }
 
 impl<T> GraphState for T where
@@ -63,9 +69,9 @@ pub struct ExecutionContext {
     /// Graph name
     pub graph_name: String,
     /// User-provided configuration
-    pub config: HashMap<String, serde_json::Value>,
+    pub config: HashMap<String, JsonValue>,
     /// Runtime metadata
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub metadata: HashMap<String, JsonValue>,
     /// Checkpoint ID if resuming
     pub checkpoint_id: Option<String>,
     /// Thread ID for conversation tracking
@@ -188,7 +194,7 @@ pub enum StreamEventType {
     NodeComplete,
     /// Node failed execution
     NodeError,
-    /// State update occurred
+    /// State update occurred between each step
     StateUpdate,
     /// Checkpoint created
     Checkpoint,
@@ -208,13 +214,13 @@ pub enum StreamEventData<S: GraphState> {
     /// State data
     State(S),
     /// State update (partial state)
-    Update(serde_json::Value),
+    Update(JsonValue),
     /// Error information
     Error { message: String, code: u32 },
     /// Checkpoint information
     Checkpoint { id: String, step: u32 },
     /// Custom data
-    Custom(serde_json::Value),
+    Custom(JsonValue),
 }
 
 /// Configuration for graph execution
@@ -231,7 +237,7 @@ pub struct GraphConfig {
     /// Thread ID for conversation tracking
     pub thread_id: Option<String>,
     /// User configuration values
-    pub config: HashMap<String, serde_json::Value>,
+    pub config: HashMap<String, JsonValue>,
     /// Whether to enable debug mode
     pub debug: bool,
     /// Nodes to interrupt before execution
@@ -319,7 +325,7 @@ pub struct StateSnapshot<S: GraphState> {
     /// Timestamp when snapshot was created
     pub timestamp: DateTime<Utc>,
     /// Execution metadata
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub metadata: HashMap<String, JsonValue>,
 }
 
 /// GraphSend command for routing messages between nodes
@@ -363,7 +369,7 @@ pub struct NodeSpec<S: GraphState> {
     /// Node function
     pub function: Arc<dyn NodeFunction<S>>,
     /// Node metadata
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub metadata: HashMap<String, JsonValue>,
     /// Retry policy
     pub retry_policy: Option<RetryPolicy>,
     /// Cache policy
@@ -464,7 +470,7 @@ pub struct EdgeSpec {
 
 /// Trait for edge conditions
 pub trait EdgeCondition: Send + Sync {
-    fn evaluate(&self, state: &serde_json::Value) -> GraphResult<bool>;
+    fn evaluate(&self, state: &JsonValue) -> GraphResult<bool>;
 }
 
 /// Branch specification for conditional routing

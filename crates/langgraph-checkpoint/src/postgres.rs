@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use langgraph_core::{GraphResult, GraphState, LangGraphError};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
+use serde_json::Value as JsonValue;
 use tracing::{debug, error, info, warn};
 
 /// Helper function to create a checkpoint error
@@ -273,8 +274,8 @@ where
             let compressed: bool = row.get("compressed");
             let checkpoint = self.deserialize_checkpoint(&checkpoint_data, compressed)?;
 
-            let metadata_json: serde_json::Value = row.get("metadata");
-            let pending_writes_json: serde_json::Value = row.get("pending_writes");
+            let metadata_json: JsonValue = row.get("metadata");
+            let pending_writes_json: JsonValue = row.get("pending_writes");
 
             let metadata: CheckpointMetadata = serde_json::from_value(metadata_json)?;
             let pending_writes: Vec<PendingWrite> = serde_json::from_value(pending_writes_json)?;
@@ -328,8 +329,8 @@ where
             let compressed: bool = row.get("compressed");
             let checkpoint = self.deserialize_checkpoint(&checkpoint_data, compressed)?;
 
-            let metadata_json: serde_json::Value = row.get("metadata");
-            let pending_writes_json: serde_json::Value = row.get("pending_writes");
+            let metadata_json: JsonValue = row.get("metadata");
+            let pending_writes_json: JsonValue = row.get("pending_writes");
 
             let metadata: CheckpointMetadata = serde_json::from_value(metadata_json)?;
             let pending_writes: Vec<PendingWrite> = serde_json::from_value(pending_writes_json)?;
@@ -406,8 +407,8 @@ where
             let compressed: bool = row.get("compressed");
             let checkpoint = self.deserialize_checkpoint(&checkpoint_data, compressed)?;
 
-            let metadata_json: serde_json::Value = row.get("metadata");
-            let pending_writes_json: serde_json::Value = row.get("pending_writes");
+            let metadata_json: JsonValue = row.get("metadata");
+            let pending_writes_json: JsonValue = row.get("pending_writes");
 
             let metadata: CheckpointMetadata = serde_json::from_value(metadata_json)?;
             let pending_writes: Vec<PendingWrite> = serde_json::from_value(pending_writes_json)?;

@@ -27,7 +27,6 @@ pub struct InMemoryCheckpointer {
 #[derive(Debug, Clone)]
 struct CheckpointData {
     /// Serialized checkpoint
-    // TODO: Replace this to serde_json::Value
     checkpoint_json: Value,
     /// Pending writes
     pending_writes: Vec<PendingWrite>,
@@ -265,6 +264,7 @@ impl<S: GraphState> Checkpointer<S> for InMemoryCheckpointer {
         checkpoint: Checkpoint<S>,
         _metadata: CheckpointMetadata,
     ) -> GraphResult<()> {
+        // TODO: Think about the usage of pending_writes
         // Serialize checkpoint
         let checkpoint_json = serde_json::to_value(&checkpoint)
             .map_err(|e| LangGraphError::Serialization { source: e })?;
