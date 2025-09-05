@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use serde_json::Value as JsonValue;
 
 /// Standard agent state for ReAct-style agents
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,7 +41,7 @@ pub enum MessageRole {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentAction {
     pub tool: String,
-    pub tool_input: serde_json::Value,
+    pub tool_input: JsonValue,
     pub log: String,
 }
 
@@ -49,8 +50,8 @@ pub struct AgentAction {
 pub struct ToolCall {
     pub id: String,
     pub tool: String,
-    pub input: serde_json::Value,
-    pub output: Option<serde_json::Value>,
+    pub input: JsonValue,
+    pub output: Option<JsonValue>,
     pub error: Option<String>,
 }
 
@@ -66,7 +67,7 @@ pub struct AgentStep {
 pub trait Tool: Send + Sync {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
-    async fn call(&self, input: serde_json::Value) -> Result<serde_json::Value, String>;
+    async fn call(&self, input: JsonValue) -> Result<JsonValue, String>;
 }
 
 /// LLM trait for language model integration
@@ -334,7 +335,7 @@ mod tests {
             "A mock tool for testing"
         }
 
-        async fn call(&self, _input: serde_json::Value) -> Result<serde_json::Value, String> {
+        async fn call(&self, _input: JsonValue) -> Result<JsonValue, String> {
             Ok(serde_json::json!({"result": "mock"}))
         }
     }

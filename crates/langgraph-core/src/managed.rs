@@ -82,6 +82,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use serde_json::Value as JsonValue;
 
 /// Trait for managed values that require special handling
 #[async_trait]
@@ -105,10 +106,10 @@ where
     fn type_name(&self) -> &'static str;
 
     /// Serialize the value for checkpointing
-    async fn serialize(&self) -> GraphResult<serde_json::Value>;
+    async fn serialize(&self) -> GraphResult<JsonValue>;
 
     /// Deserialize the value from checkpoint
-    async fn deserialize(&self, value: serde_json::Value) -> GraphResult<()>;
+    async fn deserialize(&self, value: JsonValue) -> GraphResult<()>;
 }
 
 /// Managed value for conversation memory
@@ -132,7 +133,7 @@ pub struct Message {
     /// Message timestamp
     pub timestamp: chrono::DateTime<chrono::Utc>,
     /// Additional metadata
-    pub metadata: HashMap<String, serde_json::Value>,
+    pub metadata: HashMap<String, JsonValue>,
 }
 
 /// Memory configuration
@@ -263,12 +264,12 @@ impl ManagedValue<Vec<Message>> for ConversationMemory {
         "ConversationMemory"
     }
 
-    async fn serialize(&self) -> GraphResult<serde_json::Value> {
+    async fn serialize(&self) -> GraphResult<JsonValue> {
         let messages = self.messages.read().await;
         Ok(serde_json::to_value(&*messages)?)
     }
 
-    async fn deserialize(&self, value: serde_json::Value) -> GraphResult<()> {
+    async fn deserialize(&self, value: JsonValue) -> GraphResult<()> {
         let messages: Vec<Message> = serde_json::from_value(value)?;
         let mut mem_messages = self.messages.write().await;
         *mem_messages = messages;
@@ -464,7 +465,7 @@ pub trait ManagedValueTrait: Send + Sync {
 
 impl<T> ManagedValueTrait for T
 where
-    T: ManagedValue<serde_json::Value> + 'static,
+    T: ManagedValue<JsonValue> + 'static,
 {
     fn as_any(&self) -> &dyn std::any::Any {
         self

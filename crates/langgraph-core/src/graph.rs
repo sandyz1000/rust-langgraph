@@ -11,6 +11,7 @@ use crate::types::{
 use serde::Serialize;
 use std::collections::HashMap;
 use tokio_stream::Stream;
+use serde_json::Value as JsonValue;
 
 /// State graph builder for creating computational graphs
 pub struct StateGraph<S: GraphState> {
@@ -27,7 +28,7 @@ pub struct StateGraph<S: GraphState> {
     /// Channel specifications
     channel_specs: Vec<ChannelSpec>,
     /// Graph metadata
-    metadata: HashMap<String, serde_json::Value>,
+    metadata: HashMap<String, JsonValue>,
     /// Whether the graph has been compiled
     compiled: bool,
 }
@@ -331,9 +332,9 @@ impl<S: GraphState> StateGraph<S> {
         for spec in &self.channel_specs {
             match spec.channel_type {
                 ChannelType::LastValue => {
-                    let channel = LastValueChannel::<serde_json::Value>::new();
+                    let channel = LastValueChannel::<JsonValue>::new();
                     channel_manager
-                        .register_channel::<serde_json::Value>(&spec.name, channel)
+                        .register_channel::<JsonValue>(&spec.name, channel)
                         .await?;
                 }
                 ChannelType::Ephemeral => {
@@ -379,7 +380,7 @@ pub struct CompiledGraph<S: GraphState> {
     /// Finish points
     pub(crate) finish_points: Vec<String>,
     /// Graph metadata
-    pub(crate) metadata: HashMap<String, serde_json::Value>,
+    pub(crate) metadata: HashMap<String, JsonValue>,
     /// Pregel execution engine
     pub(crate) pregel_engine: PregelEngine<S>,
 }
@@ -493,7 +494,7 @@ impl<S: GraphState> CompiledGraph<S> {
     }
 
     /// Get graph metadata
-    pub fn get_metadata(&self, key: &str) -> Option<&serde_json::Value> {
+    pub fn get_metadata(&self, key: &str) -> Option<&JsonValue> {
         self.metadata.get(key)
     }
 
