@@ -9,9 +9,9 @@ use crate::types::{
     StateSnapshot, StreamEvent,
 };
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use tokio_stream::Stream;
-use serde_json::Value as JsonValue;
 
 /// State graph builder for creating computational graphs
 pub struct StateGraph<S: GraphState> {
@@ -347,7 +347,7 @@ impl<S: GraphState> StateGraph<S> {
         }
 
         // Create Pregel engine
-        let pregel_engine = PregelEngine::new(channel_manager);
+        let pregel_engine = PregelEngine::new();
 
         Ok(CompiledGraph {
             nodes: self.nodes,

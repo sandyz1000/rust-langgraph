@@ -1,10 +1,9 @@
 //! Pregel execution engine for distributed graph computation
 
 mod engine;
-mod task;
 mod scheduler;
-mod merge;
+mod task;
 
 pub use engine::PregelEngine;
-pub use task::{PregelTask, TaskStatus, TaskResult};
 pub use scheduler::TaskScheduler;
+pub use task::{PregelTask, TaskResult, TaskStatus};

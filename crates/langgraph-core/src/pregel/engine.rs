@@ -1,18 +1,50 @@
 //! Core Pregel execution engine implementation
-
-use crate::channels::ChannelManager;
+//! 
+//! What is BSP (Bulk Synchronous Parallel)?
+//! BSP is a parallel computing model that consists of three key phases that repeat in cycles called "supersteps":
+//!
+//! ### 🔄 The Three BSP Phases:
+//! - *🏃 COMPUTATION Phase*: All processors/nodes execute tasks in parallel using only data from the previous superstep
+//! - *📡 COMMUNICATION Phase*: All processors send messages/updates to other processors
+//! - *⚡ SYNCHRONIZATION Phase*: A global synchronization barrier where all processors wait for others to complete 
+//! before proceeding to the next superstep
+//! 
+//! ### 💡 Key BSP Principles in LangGraph:
+//! - *Parallel Execution*: All nodes in a superstep run simultaneously without interfering with each other
+//! - *Immutable Input*: During execution, nodes only see the state from the previous step - no mid-step state changes
+//! - *Atomic Updates*: All state changes are collected first, then applied together after all nodes complete
+//! - *Synchronization Barrier*: The system waits for all nodes to finish before moving to the next step
+//! 
+//! ### 🔍 In the Code:
+//! ```
+//! // Phase 1: COMPUTATION - Execute all tasks in parallel
+//! let task_results = self.scheduler.execute_tasks(tasks).await?;
+//!
+//! // Phase 2: COMMUNICATION - Collect all outputs 
+//! let mut state_updates = Vec::new();
+//! for result in task_results { /* collect state changes */ }
+//!
+//! // Phase 3: SYNCHRONIZATION - Apply all updates atomically
+//! let final_state = self.merge_states(&current_state, &state_updates)?;
+//! ```
+//!
+//! 🎯 Why BSP for Graph Execution?
+//! - *Deterministic*: Same input always produces same output regardless of execution timing
+//! - *Scalable*: Nodes can run on different processors/threads safely
+//! - *Fault Tolerant*: Each superstep is atomic - if something fails, you can restart from the last completed step
+//! 
 use crate::constants::{END, MAX_RECURSION_DEPTH};
 use crate::errors::{GraphResult, LangGraphError};
 use crate::graph::CompiledGraph;
-use crate::pregel::{PregelTask, TaskScheduler, TaskStatus};
+use crate::pregel::{PregelTask, TaskResult, TaskScheduler, TaskStatus};
 use crate::types::{
-    ExecutionContext, ExecutionStats, GraphConfig, GraphState,
-    MemoryStats, StateSnapshot, StreamEvent, StreamEventData, StreamEventType,
+    ExecutionContext, ExecutionStats, GraphConfig, GraphState, MemoryStats, StateSnapshot,
+    StreamEvent, StreamEventData, StreamEventType,
 };
 use chrono::Utc;
 use dashmap::DashMap;
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
@@ -21,36 +53,57 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 use uuid::Uuid;
 
-/// Pregel execution engine for graph computation
+/// Pregel execution engine for graph computation following BSP (Bulk Synchronous Parallel) model
 pub struct PregelEngine<S: GraphState> {
-    /// Task scheduler
+    /// Task scheduler for managing concurrent execution
     scheduler: TaskScheduler<S>,
-    /// Active executions
+    /// Active graph executions
     executions: Arc<DashMap<String, ExecutionState<S>>>,
-    /// State snapshots by thread ID
+    /// Graph snapshots for debugging/monitoring
     snapshots: Arc<DashMap<String, Vec<StateSnapshot<S>>>>,
     /// Execution statistics
     stats: Arc<RwLock<ExecutionStats>>,
 }
-
-/// State of an active execution
+/// Pregel loop state for a single execution (similar to Python PregelLoop)
 struct ExecutionState<S: GraphState> {
-    /// Current state
+    /// Current graph state (represents channel values)
     current_state: Arc<RwLock<S>>,
-    /// Current step, this is to handle recursion depth
+    /// Current superstep counter
     step: AtomicU32,
-    /// Execution context
-    // TODO: Remove this type and merge it's field to the `ExecutionState`
+    /// Execution context containing metadata
     context: ExecutionContext,
-    /// Configuration
+    /// Graph configuration
     config: GraphConfig,
-    /// Event sender
+    /// Event broadcaster for streaming
     event_sender: broadcast::Sender<StreamEvent<S>>,
+    /// Channel versions for change detection
+    channel_versions: Arc<RwLock<HashMap<String, u32>>>,
+    /// Updated channels from previous step
+    updated_channels: Arc<RwLock<HashSet<String>>>,
+    /// Status of current execution
+    status: Arc<RwLock<ExecutionStatus>>,
+}
+
+/// Execution status following Pregel model
+#[derive(Debug, Clone, PartialEq)]
+enum ExecutionStatus {
+    /// Waiting for input
+    Input,
+    /// Tasks are pending execution  
+    Pending,
+    /// Execution completed successfully
+    Done,
+    /// Interrupted before task execution
+    InterruptBefore,
+    /// Interrupted after task execution
+    InterruptAfter,
+    /// Reached maximum steps without completion
+    OutOfSteps,
 }
 
 impl<S: GraphState> PregelEngine<S> {
     /// Create a new Pregel engine
-    pub fn new(_channel_manager: ChannelManager) -> Self {
+    pub fn new() -> Self {
         Self {
             scheduler: TaskScheduler::new(),
             executions: Arc::new(DashMap::new()),
@@ -96,6 +149,9 @@ impl<S: GraphState> PregelEngine<S> {
             context,
             config: config.clone(),
             event_sender: event_sender.clone(),
+            channel_versions: Arc::new(RwLock::new(HashMap::new())),
+            updated_channels: Arc::new(RwLock::new(HashSet::new())),
+            status: Arc::new(RwLock::new(ExecutionStatus::Input)),
         };
 
         // Store execution state
@@ -155,162 +211,270 @@ impl<S: GraphState> PregelEngine<S> {
         rx
     }
 
-    /// Execute the graph logic -- Level order traversal
+    /// Execute the complete Pregel algorithm following BSP (Bulk Synchronous Parallel) model
+    /// Based on LangGraph's PregelLoop implementation
     async fn execute_graph(&self, graph: &CompiledGraph<S>, execution_id: &str) -> GraphResult<()> {
         let execution = self
             .executions
             .get(execution_id)
             .ok_or_else(|| LangGraphError::runtime("Execution not found"))?;
 
-        let mut current_nodes = graph.entry_points.clone();
-        let mut step = 0u32;
+        // Initialize Pregel loop state
+        {
+            let mut status = execution.status.write().await;
+            *status = ExecutionStatus::Pending;
+        }
 
-        while !current_nodes.is_empty() && step < MAX_RECURSION_DEPTH as u32 {
-            step += 1;
-            execution.step.store(step, Ordering::Relaxed);
+        // Main Pregel Loop - follows while loop.tick() pattern
+        while self.pregel_tick(graph, execution_id).await? {
+            // Continue until completion or interruption
 
-            // Check for interrupts
-            if self.should_interrupt_before(&execution.config, &current_nodes) {
-                self.send_interrupt_event(&execution, &current_nodes, "before")
-                    .await?;
-                break;
+            // Check recursion depth
+            let current_step = execution.step.load(Ordering::Relaxed);
+            if current_step >= MAX_RECURSION_DEPTH as u32 {
+                {
+                    let mut status = execution.status.write().await;
+                    *status = ExecutionStatus::OutOfSteps;
+                }
+                return Err(LangGraphError::recursion_limit(MAX_RECURSION_DEPTH));
             }
 
-            // Execute current nodes
-            let next_nodes = self
-                .execute_step(graph, execution_id, &current_nodes)
-                .await?;
-
-            // Check for interrupts after
-            if self.should_interrupt_after(&execution.config, &current_nodes) {
-                self.send_interrupt_event(&execution, &current_nodes, "after")
-                    .await?;
-                break;
-            }
-
-            // Update current nodes for next iteration
-            current_nodes = next_nodes;
-
-            // Check if we've reached finish points
-            if current_nodes
-                .iter()
-                .any(|node| graph.finish_points.contains(node) || node == END)
-            {
-                break;
-            }
-
-            // Create checkpoint if configured, after processing each level
+            // Create checkpoint if configured
             if execution.config.checkpointing {
-                self.create_checkpoint(&execution, step).await?;
+                self.create_checkpoint(&execution, current_step).await?;
             }
         }
 
-        if step >= MAX_RECURSION_DEPTH as u32 {
-            return Err(LangGraphError::recursion_limit(MAX_RECURSION_DEPTH));
+        // Handle final status
+        let final_status = {
+            let status = execution.status.read().await;
+            status.clone()
+        };
+
+        match final_status {
+            ExecutionStatus::Done => {
+                // Send completion event
+                let final_state = {
+                    let state = execution.current_state.read().await;
+                    state.clone()
+                };
+
+                let complete_event = StreamEvent {
+                    event_type: StreamEventType::GraphComplete,
+                    timestamp: Utc::now(),
+                    step: execution.step.load(Ordering::Relaxed),
+                    node: None,
+                    data: StreamEventData::State(final_state),
+                };
+                let _ = execution.event_sender.send(complete_event);
+            }
+            ExecutionStatus::InterruptBefore | ExecutionStatus::InterruptAfter => {
+                // Interruption was handled during execution
+            }
+            ExecutionStatus::OutOfSteps => {
+                return Err(LangGraphError::recursion_limit(MAX_RECURSION_DEPTH));
+            }
+            _ => {
+                return Err(LangGraphError::runtime(&format!(
+                    "Unexpected execution status: {:?}",
+                    final_status
+                )));
+            }
         }
-
-        // Send completion event
-        let final_state = {
-            let state = execution.current_state.read().await;
-            state.clone()
-        };
-
-        let complete_event = StreamEvent {
-            event_type: StreamEventType::GraphComplete,
-            timestamp: Utc::now(),
-            step,
-            node: None,
-            data: StreamEventData::State(final_state),
-        };
-        let _ = execution.event_sender.send(complete_event);
 
         // Clean up execution
         self.executions.remove(execution_id);
-
         Ok(())
     }
 
-    /// Execute a single step (all current nodes)
-    async fn execute_step(
-        &self,
-        graph: &CompiledGraph<S>,
-        execution_id: &str,
-        current_nodes: &[String],
-    ) -> GraphResult<Vec<String>> {
+    /// Execute a single Pregel tick (superstep) - core BSP algorithm
+    /// Returns true if more iterations are needed, false when done
+    async fn pregel_tick(&self, graph: &CompiledGraph<S>, execution_id: &str) -> GraphResult<bool> {
         let execution = self
             .executions
             .get(execution_id)
             .ok_or_else(|| LangGraphError::runtime("Execution not found"))?;
 
-        let mut next_nodes = Vec::new();
+        // Increment step counter (like self.step)
+        let current_step = execution.step.fetch_add(1, Ordering::Relaxed) + 1;
+
+        // Phase 1: PREPARE NEXT TASKS
+        // This is equivalent to prepare_next_tasks()
+        let current_nodes = self
+            .prepare_next_tasks(graph, &execution, current_step)
+            .await?;
+
+        // If no tasks to execute, we're done
+        if current_nodes.is_empty() {
+            let mut status = execution.status.write().await;
+            *status = ExecutionStatus::Done;
+            return Ok(false);
+        }
+
+        // Phase 2: CHECK INTERRUPTS BEFORE
+        if self.should_interrupt_before(&execution.config, &current_nodes) {
+            self.send_interrupt_event(&execution, &current_nodes, "before")
+                .await?;
+            let mut status = execution.status.write().await;
+            *status = ExecutionStatus::InterruptBefore;
+            return Ok(false);
+        }
+
+        // Phase 3: EXECUTE STEP (all nodes in parallel - BSP)
+        let task_results = self
+            .execute_step_bsp(graph, execution_id, &current_nodes)
+            .await?;
+
+        // Phase 4: CHECK INTERRUPTS AFTER
+        if self.should_interrupt_after(&execution.config, &current_nodes) {
+            self.send_interrupt_event(&execution, &current_nodes, "after")
+                .await?;
+            let mut status = execution.status.write().await;
+            *status = ExecutionStatus::InterruptAfter;
+            return Ok(false);
+        }
+
+        // Phase 5: AFTER TICK - Apply channel updates atomically
+        // This is equivalent to loop.after_tick()
+        let has_more_work = self.after_tick(graph, &execution, &task_results).await?;
+
+        Ok(has_more_work)
+    }
+
+    /// Prepare tasks for the next superstep (like prepare_next_tasks)
+    async fn prepare_next_tasks(
+        &self,
+        graph: &CompiledGraph<S>,
+        execution: &ExecutionState<S>,
+        step: u32,
+    ) -> GraphResult<Vec<String>> {
+        // For the first step, use entry points
+        if step == 1 {
+            return Ok(graph.entry_points.clone());
+        }
+
+        // For subsequent steps, determine nodes to execute based on updated channels
+        // This would be more sophisticated in a full channel-based implementation
+        let updated_channels = {
+            let channels = execution.updated_channels.read().await;
+            channels.clone()
+        };
+
+        let mut candidate_nodes = Vec::new();
+
+        // Simplified node selection - in full implementation, this would use
+        // trigger_to_nodes mapping and channel analysis
+        for node_name in graph.nodes.keys() {
+            // Check if this node should be triggered based on channel updates
+            // For now, simplified logic based on graph structure
+            if self
+                .should_trigger_node(graph, node_name, &updated_channels)
+                .await?
+            {
+                candidate_nodes.push(node_name.clone());
+            }
+        }
+
+        // Remove finished nodes
+        candidate_nodes.retain(|node| !graph.finish_points.contains(node) && node != END);
+
+        Ok(candidate_nodes)
+    }
+
+    /// Execute BSP step - all tasks run in parallel, results collected before channel updates
+    /// This implements the core Pregel/BSP execution pattern
+    async fn execute_step_bsp(
+        &self,
+        graph: &CompiledGraph<S>,
+        execution_id: &str,
+        current_nodes: &[String],
+    ) -> GraphResult<Vec<TaskResult<S>>> {
+        let execution = self
+            .executions
+            .get(execution_id)
+            .ok_or_else(|| LangGraphError::runtime("Execution not found"))?;
+
+        let current_step = execution.step.load(Ordering::Relaxed);
         let mut tasks = Vec::new();
 
-        // Create tasks for each node
+        // PREPARE TASKS - Create executable tasks for each node
         for node_name in current_nodes {
             if let Some(node_spec) = graph.nodes.get(node_name) {
-                let current_state = {
+                // Read current state from channels (immutable during step execution)
+                let node_input = {
                     let state = execution.current_state.read().await;
                     state.clone()
                 };
 
+                // Create execution context
                 let mut task_context = execution.context.clone();
                 task_context.node_name = node_name.clone();
-                task_context.step = execution.step.load(Ordering::Relaxed);
+                task_context.step = current_step;
+
+                // Generate deterministic task ID
+                let task_id = format!("{}:{}:{}", execution_id, current_step, node_name);
 
                 let task = PregelTask::new(
-                    Uuid::new_v4().to_string(),
+                    task_id.clone(),
                     node_name.clone(),
-                    current_state,
+                    node_input,
                     task_context,
                     node_spec.function.clone(),
                 );
 
                 tasks.push(task);
+
+                // Emit task start event
+                let start_event = StreamEvent {
+                    event_type: StreamEventType::NodeStart,
+                    timestamp: Utc::now(),
+                    step: current_step,
+                    node: Some(node_name.clone()),
+                    data: StreamEventData::Custom(serde_json::json!({
+                        "task_id": task_id
+                    })),
+                };
+                let _ = execution.event_sender.send(start_event);
             }
         }
 
-        // Execute tasks
+        // EXECUTE ALL TASKS IN PARALLEL (Bulk Synchronous Parallel)
         let task_results = self.scheduler.execute_tasks(tasks).await?;
 
-        // ✅ SOLUTION: Collect all state updates first, then merge
-        let mut state_updates = Vec::new();
-
-        // Process results - collect updates without overwriting
-        for result in task_results {
+        // Process results and emit events
+        for result in &task_results {
             match result.status {
                 TaskStatus::Completed => {
-                    if let Some(new_state) = result.output_state {
-                        state_updates.push((result.node_name.clone(), new_state));
-
-                        // Send node complete event
-                        let complete_event = StreamEvent {
-                            event_type: StreamEventType::NodeComplete,
-                            timestamp: Utc::now(),
-                            step: execution.step.load(Ordering::Relaxed),
-                            node: Some(result.node_name.clone()),
-                            data: StreamEventData::Custom(serde_json::json!({
-                                "duration_ms": result.duration_ms
-                            })),
-                        };
-                        let _ = execution.event_sender.send(complete_event);
-                    }
+                    let complete_event = StreamEvent {
+                        event_type: StreamEventType::NodeComplete,
+                        timestamp: Utc::now(),
+                        step: current_step,
+                        node: Some(result.node_name.clone()),
+                        data: StreamEventData::Custom(serde_json::json!({
+                            "duration_ms": result.duration_ms,
+                            "has_writes": result.output_state.is_some()
+                        })),
+                    };
+                    let _ = execution.event_sender.send(complete_event);
                 }
                 TaskStatus::Failed => {
-                    // Send error event
                     let error_event = StreamEvent {
                         event_type: StreamEventType::NodeError,
                         timestamp: Utc::now(),
-                        step: execution.step.load(Ordering::Relaxed),
+                        step: current_step,
                         node: Some(result.node_name.clone()),
                         data: StreamEventData::Error {
-                            message: result.error.unwrap_or_else(|| "Unknown error".to_string()),
+                            message: result
+                                .error
+                                .clone()
+                                .unwrap_or_else(|| "Unknown error".to_string()),
                             code: 1001,
                         },
                     };
                     let _ = execution.event_sender.send(error_event);
 
                     return Err(LangGraphError::node_execution(
-                        result.node_name,
+                        result.node_name.clone(),
                         "Node execution failed",
                     ));
                 }
@@ -318,37 +482,107 @@ impl<S: GraphState> PregelEngine<S> {
             }
         }
 
-        // ✅ Merge all state updates into final state
+        Ok(task_results)
+    }
+
+    /// Apply channel updates after task execution (like loop.after_tick())
+    /// This is where the "synchronization barrier" happens in BSP
+    async fn after_tick(
+        &self,
+        graph: &CompiledGraph<S>,
+        execution: &ExecutionState<S>,
+        task_results: &[TaskResult<S>],
+    ) -> GraphResult<bool> {
+        let current_step = execution.step.load(Ordering::Relaxed);
+
+        // Collect all state writes from completed tasks
+        let mut state_updates = Vec::new();
+        for result in task_results {
+            if let (TaskStatus::Completed, Some(ref new_state)) =
+                (&result.status, &result.output_state)
+            {
+                state_updates.push((result.node_name.clone(), new_state.clone()));
+            }
+        }
+
+        // Apply all writes atomically to channels
         if !state_updates.is_empty() {
             let final_state = {
                 let current_state = execution.current_state.read().await;
                 self.merge_states(&current_state, &state_updates)?
             };
 
-            // Update the execution state once with merged result
+            // Update execution state (channel values)
             {
                 let mut state = execution.current_state.write().await;
                 *state = final_state.clone();
             }
 
-            // Send state update event for merged state
+            // Track updated channels for next step's task preparation
+            {
+                let mut updated_channels = execution.updated_channels.write().await;
+                updated_channels.clear();
+                // In a full implementation, this would track specific channels
+                updated_channels.insert("__state__".to_string());
+            }
+
+            // Update channel versions
+            {
+                let mut versions = execution.channel_versions.write().await;
+                versions.insert("__state__".to_string(), current_step);
+            }
+
+            // Emit state update event
             let update_event = StreamEvent {
                 event_type: StreamEventType::StateUpdate,
                 timestamp: Utc::now(),
-                step: execution.step.load(Ordering::Relaxed),
+                step: current_step,
                 node: None, // Multiple nodes contributed
-                data: StreamEventData::State(final_state.clone()),
+                data: StreamEventData::State(final_state),
             };
             let _ = execution.event_sender.send(update_event);
 
-            // Determine next nodes based on ALL completed nodes
-            for (node_name, node_state) in &state_updates {
-                let next = self.get_next_nodes(graph, node_name, node_state).await?;
-                next_nodes.extend(next);
+            // Determine if there's more work by checking for next nodes
+            let has_next_nodes = self.has_next_nodes(graph, &state_updates).await?;
+            return Ok(has_next_nodes);
+        }
+
+        // No writes means no more work
+        Ok(false)
+    }
+
+    /// Check if any completed nodes have outgoing edges (simplified next node detection)
+    async fn has_next_nodes(
+        &self,
+        graph: &CompiledGraph<S>,
+        state_updates: &[(String, S)],
+    ) -> GraphResult<bool> {
+        for (node_name, node_state) in state_updates {
+            let next_nodes = self.get_next_nodes(graph, node_name, node_state).await?;
+            if !next_nodes.is_empty() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Simplified node triggering logic (in full implementation, this uses channel analysis)
+    async fn should_trigger_node(
+        &self,
+        graph: &CompiledGraph<S>,
+        node_name: &str,
+        _updated_channels: &HashSet<String>,
+    ) -> GraphResult<bool> {
+        // Simplified: check if node has incoming edges from nodes that might have run
+        // In full implementation, this would analyze channel subscriptions
+        for edge in &graph.edges {
+            if edge.to == node_name {
+                return Ok(true);
             }
         }
 
-        Ok(next_nodes)
+        // Check if it's a conditional branch target
+        Ok(graph.branches.contains_key(node_name))
     }
 
     /// Merge multiple state updates into a single state for workflow management
@@ -583,4 +817,3 @@ impl<S: GraphState> PregelEngine<S> {
         updater(&mut *stats);
     }
 }
-
