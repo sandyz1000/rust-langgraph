@@ -1,28 +1,35 @@
 //! Example: Branching based on state (similar to Python branching)
 
-use langgraph_core::{ExecutionContext, GraphResult, StateGraph, END, START};
+use langgraph_core::{ExecutionContext, GraphResult, StateGraph, StateUpdate, END, START};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Counter {
     value: i32,
 }
 
-async fn increment(mut s: Counter, _ctx: ExecutionContext) -> GraphResult<Counter> {
+async fn increment(mut s: Counter, _ctx: ExecutionContext) -> GraphResult<StateUpdate> {
     s.value += 1;
-    Ok(s)
+    let mut update = StateUpdate::new();
+    update.insert("value".to_string(), Value::from(s.value));
+    Ok(update)
 }
 
-async fn even(mut s: Counter, _ctx: ExecutionContext) -> GraphResult<Counter> {
+async fn even(mut s: Counter, _ctx: ExecutionContext) -> GraphResult<StateUpdate> {
     // do something for even numbers
     s.value += 10;
-    Ok(s)
+    let mut update = StateUpdate::new();
+    update.insert("value".to_string(), Value::from(s.value));
+    Ok(update)
 }
 
-async fn odd(mut s: Counter, _ctx: ExecutionContext) -> GraphResult<Counter> {
+async fn odd(mut s: Counter, _ctx: ExecutionContext) -> GraphResult<StateUpdate> {
     // do something for odd numbers
     s.value += 100;
-    Ok(s)
+    let mut update = StateUpdate::new();
+    update.insert("value".to_string(), Value::from(s.value));
+    Ok(update)
 }
 
 #[tokio::main]

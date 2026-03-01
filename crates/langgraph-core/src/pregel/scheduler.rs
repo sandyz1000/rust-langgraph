@@ -2,14 +2,16 @@
 //! Task scheduler for concurrent execution
 
 use crate::errors::{GraphResult, LangGraphError};
-use crate::pregel::{PregelTask, TaskResult, TaskStatus};
 use crate::pregel::task::TaskPriority;
+use crate::pregel::{PregelTask, TaskResult, TaskStatus};
 use crate::types::GraphState;
+use futures::future::join_all;
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, Semaphore, mpsc};
+use tokio::sync::{mpsc, RwLock, Semaphore};
+use tokio::time::sleep;
 use tokio::time::timeout;
 
 /// Task scheduler for managing concurrent task execution
@@ -208,55 +210,69 @@ impl<S: GraphState> TaskScheduler<S> {
     }
 
     /// Execute a batch of tasks
-    pub async fn execute_tasks(
-        &self,
-        tasks: Vec<PregelTask<S>>,
-    ) -> GraphResult<Vec<TaskResult<S>>> {
-        let mut results = Vec::with_capacity(tasks.len());
-        let mut join_handles = Vec::new();
+    pub async fn execute_tasks(&self, tasks: Vec<PregelTask<S>>) -> GraphResult<Vec<TaskResult>> {
+        let task_futures = tasks.into_iter().map(|task| self.execute_single_task(task));
+        let task_results = join_all(task_futures).await;
 
-        // Start all tasks
-        for task in tasks {
-            let task_result = self.execute_single_task(task).await;
-            join_handles.push(task_result);
-        }
-
-        // Collect results
-        for join_result in join_handles {
-            results.push(join_result?);
+        let mut results = Vec::with_capacity(task_results.len());
+        for result in task_results {
+            results.push(result?);
         }
 
         Ok(results)
     }
 
     /// Execute a single task directly
-    async fn execute_single_task(&self, mut task: PregelTask<S>) -> GraphResult<TaskResult<S>> {
+    async fn execute_single_task(&self, mut task: PregelTask<S>) -> GraphResult<TaskResult> {
         // Acquire semaphore permit
         let _permit = self.semaphore.acquire().await.unwrap();
 
-        // Execute with timeout
-        let execution_timeout = Duration::from_millis(self.config.default_timeout_ms);
-        let result = match timeout(execution_timeout, task.execute()).await {
-            Ok(result) => result,
-            Err(_) => TaskResult {
-                task_id: task.id.clone(),
-                node_name: task.node_name.clone(),
-                status: TaskStatus::TimedOut,
-                output_state: None,
-                error: Some("Task execution timed out".to_string()),
-                duration_ms: execution_timeout.as_millis() as u64,
-                completed_at: chrono::Utc::now(),
+        let timeout_ms = task
+            .context
+            .get_config::<u64>("timeout_ms")
+            .unwrap_or(self.config.default_timeout_ms);
+        let max_retries = task.context.get_config::<u32>("max_retries").unwrap_or(
+            if self.config.enable_retries {
+                self.config.max_retries
+            } else {
+                0
             },
-        };
+        );
+        let retry_delay_ms = task
+            .context
+            .get_config::<u64>("retry_delay_ms")
+            .unwrap_or(self.config.retry_delay_ms);
 
-        Ok(result)
+        let execution_timeout = Duration::from_millis(timeout_ms);
+        let mut attempt = 0;
+
+        loop {
+            let result = match timeout(execution_timeout, task.execute()).await {
+                Ok(result) => result,
+                Err(_) => TaskResult {
+                    task_id: task.id.clone(),
+                    node_name: task.node_name.clone(),
+                    status: TaskStatus::TimedOut,
+                    output_update: None,
+                    routing_targets: None,
+                    interrupt_message: None,
+                    error: Some("Task execution timed out".to_string()),
+                    duration_ms: execution_timeout.as_millis() as u64,
+                    completed_at: chrono::Utc::now(),
+                },
+            };
+
+            if !result.is_failed() || attempt >= max_retries {
+                return Ok(result);
+            }
+
+            attempt += 1;
+            sleep(Duration::from_millis(retry_delay_ms)).await;
+        }
     }
 
     /// Schedule a single task for execution
-    pub async fn schedule_task(
-        &self,
-        mut task: PregelTask<S>,
-    ) -> GraphResult<TaskHandle<S>> {
+    pub async fn schedule_task(&self, mut task: PregelTask<S>) -> GraphResult<TaskHandle<S>> {
         let task_id = task.id.clone();
         let priority = TaskPriority::Normal; // Default priority
 
@@ -301,7 +317,9 @@ impl<S: GraphState> TaskScheduler<S> {
                     task_id: task.id.clone(),
                     node_name: task.node_name.clone(),
                     status: TaskStatus::TimedOut,
-                    output_state: None,
+                    output_update: None,
+                    routing_targets: None,
+                    interrupt_message: None,
                     error: Some("Task execution timed out".to_string()),
                     duration_ms: execution_timeout.as_millis() as u64,
                     completed_at: chrono::Utc::now(),
@@ -343,11 +361,11 @@ impl<S: GraphState> TaskScheduler<S> {
     pub async fn cancel_all_tasks(&self) -> GraphResult<usize> {
         let active_tasks = self.active_tasks.read().await;
         let count = active_tasks.len();
-        
+
         for handle in active_tasks.values() {
             let _ = handle.cancel_sender.send(()).await;
         }
-        
+
         Ok(count)
     }
 
@@ -418,9 +436,10 @@ impl<S: GraphState> TaskHandle<S> {
 
     /// Cancel the task
     pub async fn cancel(&self) -> GraphResult<()> {
-        self.cancel_sender.send(()).await.map_err(|_| {
-            LangGraphError::runtime("Failed to send cancel signal")
-        })?;
+        self.cancel_sender
+            .send(())
+            .await
+            .map_err(|_| LangGraphError::runtime("Failed to send cancel signal"))?;
         Ok(())
     }
 }

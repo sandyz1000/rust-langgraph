@@ -1,8 +1,9 @@
 //! Streaming example demonstrating real-time event processing
 
 use rust_langgraph::prelude::*;
-use langgraph_core::{StreamEventData, StreamMode};
+use langgraph_core::{StateUpdate, StreamEventData, StreamMode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::time::{sleep, Duration};
 use futures::StreamExt;
 
@@ -18,7 +19,7 @@ struct StreamState {
 async fn tokenize_input(
     state: StreamState,
     _context: ExecutionContext,
-) -> GraphResult<StreamState> {
+) -> GraphResult<StateUpdate> {
     println!("🔤 Tokenizing input: {}", state.input);
     
     let words: Vec<&str> = state.input.split_whitespace().collect();
@@ -43,19 +44,21 @@ async fn tokenize_input(
         println!("  📤 Token {}: '{}'", i + 1, word);
     }
     
-    Ok(StreamState {
-        input: state.input,
-        tokens: tokens.clone(),
-        processing_stage: "Tokenization complete".to_string(),
-        total_tokens: tokens.len() as u32,
-    })
+    let mut update = StateUpdate::new();
+    update.insert("tokens".to_string(), serde_json::to_value(tokens.clone())?);
+    update.insert(
+        "processing_stage".to_string(),
+        Value::from("Tokenization complete".to_string()),
+    );
+    update.insert("total_tokens".to_string(), Value::from(tokens.len() as u32));
+    Ok(update)
 }
 
 // Analysis node that processes tokens
 async fn analyze_tokens(
     state: StreamState,
     _context: ExecutionContext,
-) -> GraphResult<StreamState> {
+) -> GraphResult<StateUpdate> {
     println!("🔍 Analyzing {} tokens", state.tokens.len());
     
     // Simulate analysis processing
@@ -64,17 +67,19 @@ async fn analyze_tokens(
         println!("  🔎 Analyzing token {}: '{}'", i + 1, token);
     }
     
-    Ok(StreamState {
-        processing_stage: "Analysis complete".to_string(),
-        ..state
-    })
+    let mut update = StateUpdate::new();
+    update.insert(
+        "processing_stage".to_string(),
+        Value::from("Analysis complete".to_string()),
+    );
+    Ok(update)
 }
 
 // Generation node that creates output
 async fn generate_output(
     state: StreamState,
     _context: ExecutionContext,
-) -> GraphResult<StreamState> {
+) -> GraphResult<StateUpdate> {
     println!("✨ Generating output from {} tokens", state.tokens.len());
     
     // Simulate output generation
@@ -85,10 +90,12 @@ async fn generate_output(
         println!("  📝 Generated word {}: '{}'", i + 1, word);
     }
     
-    Ok(StreamState {
-        processing_stage: "Generation complete".to_string(),
-        ..state
-    })
+    let mut update = StateUpdate::new();
+    update.insert(
+        "processing_stage".to_string(),
+        Value::from("Generation complete".to_string()),
+    );
+    Ok(update)
 }
 
 #[tokio::main]

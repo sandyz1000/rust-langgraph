@@ -1,6 +1,7 @@
 //! Channel system for inter-node communication
 
 use crate::errors::GraphResult;
+use crate::managed::ManagedValue;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,6 +28,68 @@ where
 
     /// Check if the channel has been updated since a given version
     async fn is_updated(&self, since_version: u64) -> GraphResult<bool>;
+}
+
+/// Channel wrapper over a `ManagedValue` implementation.
+#[derive(Debug)]
+pub struct ManagedValueChannel<T, M>
+where
+    T: Clone + Send + Sync + 'static,
+    M: ManagedValue<T> + Send + Sync + 'static,
+{
+    managed: Arc<M>,
+    version: Arc<RwLock<u64>>,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T, M> ManagedValueChannel<T, M>
+where
+    T: Clone + Send + Sync + 'static,
+    M: ManagedValue<T> + Send + Sync + 'static,
+{
+    /// Create a managed-value backed channel.
+    pub fn new(managed: Arc<M>) -> Self {
+        Self {
+            managed,
+            version: Arc::new(RwLock::new(0)),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<T, M> Channel<T> for ManagedValueChannel<T, M>
+where
+    T: Clone + Send + Sync + 'static,
+    M: ManagedValue<T> + Send + Sync + 'static,
+{
+    async fn write(&self, value: T) -> GraphResult<()> {
+        self.managed.update(value).await?;
+        let mut version = self.version.write().await;
+        *version += 1;
+        Ok(())
+    }
+
+    async fn read(&self) -> GraphResult<Option<T>> {
+        self.managed.read().await
+    }
+
+    async fn version(&self) -> GraphResult<u64> {
+        let version = self.version.read().await;
+        Ok(*version)
+    }
+
+    async fn clear(&self) -> GraphResult<()> {
+        self.managed.clear().await?;
+        let mut version = self.version.write().await;
+        *version += 1;
+        Ok(())
+    }
+
+    async fn is_updated(&self, since_version: u64) -> GraphResult<bool> {
+        let current_version = self.version().await?;
+        Ok(current_version > since_version)
+    }
 }
 
 /// Last-value channel that stores the most recent value
@@ -492,9 +555,19 @@ pub enum ChannelType {
     /// Accumulator channel
     Accumulator,
     /// Binary operator channel with reducer
-    BinaryOp { reducer: String },
+    BinaryOp { reducer: BinaryOpReducer },
     /// Ephemeral channel
     Ephemeral,
+}
+
+/// Supported reducers for binary operator channels.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BinaryOpReducer {
+    Add,
+    Max,
+    Min,
+    Concat,
 }
 
 impl ChannelSpec {

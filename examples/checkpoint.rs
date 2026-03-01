@@ -3,7 +3,8 @@ use chrono::Utc;
 use langgraph_checkpoint::{
     Checkpoint, CheckpointConfig, CheckpointMetadata, Checkpointer, InMemoryCheckpointer,
 };
-use langgraph_core::{GraphConfig, GraphResult, StateGraph, StreamMode};
+use langgraph_core::{GraphConfig, GraphResult, StateGraph, StateUpdate, StreamMode};
+use serde_json::Value;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,12 +18,16 @@ async fn build_graph() -> GraphResult<langgraph_core::graph::CompiledGraph<Count
 
     graph.add_node("inc1", |mut s: CounterState, _ctx| async move {
         s.value += 1;
-        Ok(s)
+        let mut update = StateUpdate::new();
+        update.insert("value".to_string(), Value::from(s.value));
+        Ok(update)
     })?;
 
     graph.add_node("inc2", |mut s: CounterState, _ctx| async move {
         s.value += 1;
-        Ok(s)
+        let mut update = StateUpdate::new();
+        update.insert("value".to_string(), Value::from(s.value));
+        Ok(update)
     })?;
 
     graph.add_edge(langgraph_core::constants::START, "inc1")?;

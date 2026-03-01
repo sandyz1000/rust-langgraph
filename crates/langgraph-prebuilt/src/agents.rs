@@ -1,7 +1,8 @@
 //! Prebuilt agent implementations
 
 use langgraph_core::{
-    CompiledGraph, ExecutionContext, GraphResult, LangGraphError, StateGraph, END, START,
+    CompiledGraph, ExecutionContext, GraphResult, LangGraphError, StateGraph, StateUpdate, END,
+    START,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -203,7 +204,7 @@ fn create_reasoning_node(
 ) -> impl Fn(
     AgentState,
     ExecutionContext,
-) -> std::pin::Pin<Box<dyn Future<Output = GraphResult<AgentState>> + Send>>
+) -> std::pin::Pin<Box<dyn Future<Output = GraphResult<StateUpdate>> + Send>>
        + Send
        + Sync {
     let llm_arc = Arc::new(llm);
@@ -222,7 +223,7 @@ async fn reasoning_node(
     mut state: AgentState,
     llm: &dyn LLM,
     tools: &[Box<dyn Tool>],
-) -> GraphResult<AgentState> {
+) -> GraphResult<StateUpdate> {
     println!("🤔 Agent reasoning...");
 
     // Convert tools to trait objects for LLM
@@ -246,14 +247,14 @@ async fn reasoning_node(
     state.is_final = response.is_final || state.tool_calls.is_empty();
     state.current_thought = Some(response.content);
 
-    Ok(state)
+    state_to_update(&state)
 }
 
 /// Tool execution node
 async fn tool_execution_node(
     mut state: AgentState,
     _context: ExecutionContext,
-) -> GraphResult<AgentState> {
+) -> GraphResult<StateUpdate> {
     println!("🔧 Executing tools...");
 
     let mut executed_calls = Vec::new();
@@ -279,7 +280,16 @@ async fn tool_execution_node(
     }
 
     state.tool_calls = executed_calls;
-    Ok(state)
+    state_to_update(&state)
+}
+
+fn state_to_update(state: &AgentState) -> GraphResult<StateUpdate> {
+    match serde_json::to_value(state)? {
+        JsonValue::Object(map) => Ok(map),
+        _ => Err(LangGraphError::invalid_update(
+            "AgentState must serialize to a JSON object",
+        )),
+    }
 }
 
 /// Decide whether to continue or end

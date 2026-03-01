@@ -7,8 +7,10 @@ use langgraph_observability::{
     prompt_analysis::PromptAnalysisConfig, Observability, ObservabilityConfig, PromptAnalyzer,
     StorageConfig,
 };
+use langgraph_core::StateUpdate;
 use rust_langgraph::prelude::*;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -21,7 +23,7 @@ struct ChatState {
 }
 
 // Simulated LLM call node with observability
-async fn llm_node(state: ChatState, _context: ExecutionContext) -> GraphResult<ChatState> {
+async fn llm_node(state: ChatState, _context: ExecutionContext) -> GraphResult<StateUpdate> {
     println!("🤖 LLM processing: {}", state.user_input);
 
     // Simulate LLM processing time
@@ -41,16 +43,19 @@ async fn llm_node(state: ChatState, _context: ExecutionContext) -> GraphResult<C
     messages.push(format!("User: {}", state.user_input));
     messages.push(format!("Assistant: {}", response));
 
-    Ok(ChatState {
-        messages,
-        user_input: state.user_input,
-        step_count: state.step_count + 1,
-        context: format!("Processed: {}", response),
-    })
+    let mut update = StateUpdate::new();
+    update.insert("messages".to_string(), serde_json::to_value(messages)?);
+    update.insert("user_input".to_string(), Value::from(state.user_input));
+    update.insert("step_count".to_string(), Value::from(state.step_count + 1));
+    update.insert(
+        "context".to_string(),
+        Value::from(format!("Processed: {}", response)),
+    );
+    Ok(update)
 }
 
 // Analysis node with metrics collection
-async fn analysis_node(state: ChatState, _context: ExecutionContext) -> GraphResult<ChatState> {
+async fn analysis_node(state: ChatState, _context: ExecutionContext) -> GraphResult<StateUpdate> {
     println!("📊 Analyzing conversation...");
 
     // Simulate analysis processing
@@ -68,12 +73,15 @@ async fn analysis_node(state: ChatState, _context: ExecutionContext) -> GraphRes
         sentiment, state.step_count
     ));
 
-    Ok(ChatState {
-        messages,
-        user_input: state.user_input,
-        step_count: state.step_count + 1,
-        context: format!("{} | Sentiment: {}", state.context, sentiment),
-    })
+    let mut update = StateUpdate::new();
+    update.insert("messages".to_string(), serde_json::to_value(messages)?);
+    update.insert("user_input".to_string(), Value::from(state.user_input));
+    update.insert("step_count".to_string(), Value::from(state.step_count + 1));
+    update.insert(
+        "context".to_string(),
+        Value::from(format!("{} | Sentiment: {}", state.context, sentiment)),
+    );
+    Ok(update)
 }
 
 // Conditional logic for graph flow

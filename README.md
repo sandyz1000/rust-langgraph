@@ -2,7 +2,7 @@
 
 A comprehensive Rust implementation of LangGraph, a library for building stateful, multi-actor applications with LLMs. This implementation provides the same core functionality as the original Python version with Rust's performance, safety, and concurrency benefits.
 
-## 🚀 Features
+## Features
 
 - **Stateful Graph Orchestration**: Build complex, stateful applications using a graph-based approach
 - **Async/Await Support**: Full async ecosystem integration with Tokio
@@ -14,26 +14,7 @@ A comprehensive Rust implementation of LangGraph, a library for building statefu
 - **Flexible Serialization**: Multiple serialization protocols (JSON, MessagePack, compression)
 - **Observability**: Comprehensive monitoring, tracing, and debugging toolkit similar to LangSmith
 
-## 📦 Project Structure
-
-```
-rust-langgraph/
-├── Cargo.toml                 # Workspace configuration
-├── README.md                  # This file
-├── crates/
-│   ├── langgraph-core/        # Core graph functionality
-│   ├── langgraph-checkpoint/  # Checkpointing system
-│   ├── langgraph-runtime/     # Runtime and execution context
-│   ├── langgraph-prebuilt/    # High-level agent builders
-│   ├── langgraph-observability/ # 🔍 Observability and debugging toolkit
-│   └── langgraph-cli/         # Command-line interface
-└── examples/                  # Example applications
-    ├── basic_agent.rs         # Simple agent example
-    ├── advanced_workflow.rs   # Complex workflow with checkpointing
-    └── streaming.rs           # Real-time streaming example
-```
-
-## 🏗️ Architecture
+## Architecture
 
 ### Core Components
 
@@ -50,7 +31,7 @@ rust-langgraph/
 - `ExecutionContext`: Runtime context with configuration and metadata
 - `StreamEvent`: Event types for real-time updates
 
-## 🚀 Quick Start
+## Quick Start
 
 Add to your `Cargo.toml`:
 
@@ -105,29 +86,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## 📚 Examples
 
 ### 1. Basic Agent (`examples/basic_agent.rs`)
+
 Demonstrates:
+
 - Simple state management
 - Node creation and connection
 - Conditional routing
 - Basic streaming
 
 ### 2. Advanced Workflow (`examples/advanced_workflow.rs`)
+
 Demonstrates:
+
 - Human-in-the-loop patterns
 - Checkpointing
 - Complex conditional logic
 - Multi-step workflows
 
 ### 3. Streaming (`examples/streaming.rs`)
+
 Demonstrates:
+
 - Real-time event streaming
 - Different streaming modes
 - Token-by-token processing
 - Progress monitoring
 
 ### 4. Observability Demo (`examples/observability_demo.rs`) 🔍
-**NEW**: Comprehensive observability and debugging toolkit
-Demonstrates:
+
+Demonstrates (Comprehensive observability and debugging toolkit):
+
 - LangSmith-like monitoring and debugging
 - Real-time dashboard at http://localhost:3000
 - Distributed tracing with OpenTelemetry
@@ -135,11 +123,22 @@ Demonstrates:
 - Prompt analysis and optimization
 - WebSocket-based live event streaming
 
+### 5. Channels API (`examples/channels_api.rs`)
+
+Demonstrates:
+
+- Per-key channel configuration with `set_channel_type`
+- `BinaryOp(add)` + `Accumulator` behavior
+- `BinaryOp(max)` + `BinaryOp(concat)` behavior
+- Parallel superstep merge semantics
+
 Run examples:
+
 ```bash
 cargo run --example basic_agent
 cargo run --example advanced_workflow
 cargo run --example streaming
+cargo run --example channels_api
 
 # Run the observability demo
 cargo run --example observability_demo
@@ -152,6 +151,7 @@ cargo run --example observability_demo
 LangGraph Rust includes a comprehensive observability toolkit that provides LangSmith-like functionality for monitoring and debugging your graph applications:
 
 ### Key Features
+
 - **Real-time Dashboard**: Web UI at http://localhost:3000 for monitoring runs
 - **Distributed Tracing**: OpenTelemetry integration with Jaeger/OTLP support
 - **Metrics Collection**: Prometheus-compatible metrics for performance monitoring
@@ -160,6 +160,7 @@ LangGraph Rust includes a comprehensive observability toolkit that provides Lang
 - **Multiple Storage**: In-memory, SQLite, and PostgreSQL backends
 
 ### Quick Start
+
 ```rust
 use langgraph_observability::{Observability, ObservabilityConfig};
 
@@ -234,13 +235,13 @@ let checkpointer = InMemoryCheckpointer::new();
 // Use with graphs for automatic state persistence
 ```
 
-## 🔄 Stream Modes
+## Stream Modes
 
 - `Values`: Stream complete state after each node
 - `Updates`: Stream only state changes from each node  
 - `Debug`: Stream detailed execution information
 
-## 🧪 Testing
+## Testing
 
 Run tests for all crates:
 
@@ -255,9 +256,10 @@ cargo test -p langgraph-core
 cargo test -- --nocapture
 ```
 
-## 🚧 Current Status
+## Current Status
 
-### ✅ Completed
+### Completed
+
 - Core graph building and execution
 - Pregel-based execution engine
 - State management and type system
@@ -266,53 +268,32 @@ cargo test -- --nocapture
 - Channel system for communication
 - Error handling and validation
 - Comprehensive examples
-- **🔍 Observability Toolkit** - Complete LangSmith-like monitoring system
+- **Observability Toolkit** - Complete LangSmith-like monitoring system
   - Real-time web dashboard
   - Distributed tracing with OpenTelemetry
   - Prometheus metrics collection
   - Prompt analysis and optimization
   - WebSocket event streaming
 
-### 🚧 In Progress
+### In Progress
+
 - Additional checkpoint backends (SQLite, PostgreSQL, Redis)
 - Advanced streaming features
 - Performance optimizations
 - Integration with LLM libraries
 
 ### 📋 Planned
+
 - More prebuilt agent types
 - Plugin system for extensions
 - Advanced graph optimization features
 - Integration with more LLM providers
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Original [LangGraph](https://github.com/langchain-ai/langgraph) Python implementation
 - Google's Pregel paper for the distributed graph computation model
-- The Rust community for excellent async ecosystem tools
-
-## 📖 Documentation
-
-For detailed documentation, see:
-- [Core Concepts](docs/core-concepts.md)
-- [API Reference](docs/api-reference.md)
-- [Examples Guide](docs/examples.md)
-- [Checkpoint Backends](docs/checkpointing.md)
-
-## 💬 Community
-
-- [Discussions](https://github.com/yourusername/rust-langgraph/discussions)
-- [Issues](https://github.com/yourusername/rust-langgraph/issues)
-- [Discord](https://discord.gg/rust-langgraph) (coming soon)

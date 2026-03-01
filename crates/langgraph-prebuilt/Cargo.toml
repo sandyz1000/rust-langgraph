@@ -16,11 +16,7 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 langgraph-core = { path = "../langgraph-core" }
 langgraph-checkpoint = { path = "../langgraph-checkpoint" }
 langgraph-runtime = { path = "../langgraph-runtime" }
+langchain-rust = { workspace = true }
 
 [dev-dependencies]
-tokio-test = "0.4"
-
-[dependencies.langchain-rust]
-# Path or version should be adjusted to your local/external crate
-path = "/home/sandipdey/Documents/AppDev/langchain-rust"
-version = "*"
+tokio-test = "0.4.5"

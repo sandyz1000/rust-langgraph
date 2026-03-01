@@ -2,7 +2,7 @@
 //! Task representation and execution for Pregel engine
 
 use crate::errors::{GraphResult, LangGraphError};
-use crate::types::{ExecutionContext, GraphState, NodeFunction};
+use crate::types::{Command, ExecutionContext, GraphState, NodeFunction, StateUpdate};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -53,7 +53,7 @@ impl<S: GraphState> PregelTask<S> {
     }
 
     /// Execute the task
-    pub async fn execute(&mut self) -> TaskResult<S> {
+    pub async fn execute(&mut self) -> TaskResult {
         self.status = TaskStatus::Running;
         self.started_at = Some(Utc::now());
 
@@ -64,13 +64,25 @@ impl<S: GraphState> PregelTask<S> {
         self.completed_at = Some(Utc::now());
 
         match result {
-            Ok(output_state) => {
+            Ok(output) => {
+                let (routing_targets, interrupt_message) = match output.command {
+                    Some(Command::Goto(node)) => (Some(vec![node]), None),
+                    Some(Command::Send(sends)) => (
+                        Some(sends.into_iter().map(|send| send.node).collect()),
+                        None,
+                    ),
+                    Some(Command::Interrupt(message)) => (None, Some(message)),
+                    _ => (None, None),
+                };
+
                 self.status = TaskStatus::Completed;
                 TaskResult {
                     task_id: self.id.clone(),
                     node_name: self.node_name.clone(),
                     status: TaskStatus::Completed,
-                    output_state: Some(output_state),
+                    output_update: Some(output.update),
+                    routing_targets,
+                    interrupt_message,
                     error: None,
                     duration_ms: duration.as_millis() as u64,
                     completed_at: self.completed_at.unwrap(),
@@ -82,7 +94,9 @@ impl<S: GraphState> PregelTask<S> {
                     task_id: self.id.clone(),
                     node_name: self.node_name.clone(),
                     status: TaskStatus::Failed,
-                    output_state: None,
+                    output_update: None,
+                    routing_targets: None,
+                    interrupt_message: None,
                     error: Some(err.to_string()),
                     duration_ms: duration.as_millis() as u64,
                     completed_at: self.completed_at.unwrap(),
@@ -158,15 +172,19 @@ impl TaskStatus {
 
 /// Result of task execution
 #[derive(Debug, Clone)]
-pub struct TaskResult<S: GraphState> {
+pub struct TaskResult {
     /// Task ID
     pub task_id: String,
     /// Node name
     pub node_name: String,
     /// Execution status
     pub status: TaskStatus,
-    /// Output state (if successful)
-    pub output_state: Option<S>,
+    /// Output state update (if successful)
+    pub output_update: Option<StateUpdate>,
+    /// Explicit command-driven routing targets (if provided by node)
+    pub routing_targets: Option<Vec<String>>,
+    /// Explicit interrupt message requested by node command
+    pub interrupt_message: Option<String>,
     /// Error message (if failed)
     pub error: Option<String>,
     /// Execution duration in milliseconds
@@ -175,19 +193,21 @@ pub struct TaskResult<S: GraphState> {
     pub completed_at: DateTime<Utc>,
 }
 
-impl<S: GraphState> TaskResult<S> {
+impl TaskResult {
     /// Create a successful task result
     pub fn success(
         task_id: String,
         node_name: String,
-        output_state: S,
+        output_update: StateUpdate,
         duration_ms: u64,
     ) -> Self {
         Self {
             task_id,
             node_name,
             status: TaskStatus::Completed,
-            output_state: Some(output_state),
+            output_update: Some(output_update),
+            routing_targets: None,
+            interrupt_message: None,
             error: None,
             duration_ms,
             completed_at: Utc::now(),
@@ -205,7 +225,9 @@ impl<S: GraphState> TaskResult<S> {
             task_id,
             node_name,
             status: TaskStatus::Failed,
-            output_state: None,
+            output_update: None,
+            routing_targets: None,
+            interrupt_message: None,
             error: Some(error),
             duration_ms,
             completed_at: Utc::now(),
@@ -227,16 +249,16 @@ impl<S: GraphState> TaskResult<S> {
         self.error.as_deref()
     }
 
-    /// Get the output state if successful
-    pub fn output(&self) -> Option<&S> {
-        self.output_state.as_ref()
+    /// Get the output state update if successful
+    pub fn output(&self) -> Option<&StateUpdate> {
+        self.output_update.as_ref()
     }
 
-    pub fn into_result(self) -> Result<S, LangGraphError> {
+    pub fn into_result(self) -> Result<StateUpdate, LangGraphError> {
         match self.status {
             TaskStatus::Completed => {
-                self.output_state.ok_or_else(|| {
-                    LangGraphError::runtime("Task completed but no output state")
+                self.output_update.ok_or_else(|| {
+                    LangGraphError::runtime("Task completed but no output update")
                 })
             }
             TaskStatus::Failed => {

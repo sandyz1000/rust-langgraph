@@ -1,15 +1,18 @@
 //! Example: Using GraphConfig and streaming updates
 
 use futures::StreamExt;
-use langgraph_core::{ExecutionContext, GraphConfig, GraphResult, StateGraph, StreamEventType};
+use langgraph_core::{
+    ExecutionContext, GraphConfig, GraphResult, StateGraph, StateUpdate, StreamEventType,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Data {
     x: i32,
 }
 
-async fn work(mut s: Data, mut ctx: ExecutionContext) -> GraphResult<Data> {
+async fn work(mut s: Data, mut ctx: ExecutionContext) -> GraphResult<StateUpdate> {
     // Read from config (if present)
     let bump: Option<i32> = ctx.get_config("bump");
     if let Some(b) = bump {
@@ -17,7 +20,9 @@ async fn work(mut s: Data, mut ctx: ExecutionContext) -> GraphResult<Data> {
     }
     // Set some metadata
     ctx.set_metadata("worker", "work").ok();
-    Ok(s)
+    let mut update = StateUpdate::new();
+    update.insert("x".to_string(), Value::from(s.x));
+    Ok(update)
 }
 
 #[tokio::main]

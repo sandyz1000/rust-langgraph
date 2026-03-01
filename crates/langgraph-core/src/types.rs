@@ -4,6 +4,7 @@ use crate::errors::GraphResult;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Map as JsonMap;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::sync::Arc;
@@ -26,34 +27,86 @@ impl<T> GraphState for T where
 {
 }
 
+/// Partial state update returned by nodes
+pub type StateUpdate = JsonMap<String, JsonValue>;
+
+/// Node output containing optional state updates and execution command.
+#[derive(Debug, Clone)]
+pub struct NodeOutput<S: GraphState> {
+    /// Partial state update to merge into the global state.
+    pub update: StateUpdate,
+    /// Optional execution command for routing/control flow.
+    pub command: Option<Command<S>>,
+}
+
+impl<S: GraphState> NodeOutput<S> {
+    /// Create node output with only update data.
+    pub fn from_update(update: StateUpdate) -> Self {
+        Self {
+            update,
+            command: None,
+        }
+    }
+
+    /// Create node output with update and command.
+    pub fn with_command(update: StateUpdate, command: Command<S>) -> Self {
+        Self {
+            update,
+            command: Some(command),
+        }
+    }
+
+    /// Create node output with only command.
+    pub fn from_command(command: Command<S>) -> Self {
+        Self {
+            update: StateUpdate::new(),
+            command: Some(command),
+        }
+    }
+}
+
+impl<S: GraphState> From<StateUpdate> for NodeOutput<S> {
+    fn from(update: StateUpdate) -> Self {
+        Self::from_update(update)
+    }
+}
+
+impl<S: GraphState> From<Command<S>> for NodeOutput<S> {
+    fn from(command: Command<S>) -> Self {
+        Self::from_command(command)
+    }
+}
+
 /// Node function type - async function that takes state and returns updated state
 #[async_trait]
 pub trait NodeFunction<S: GraphState>: Send + Sync {
-    async fn call(&self, state: S, context: ExecutionContext) -> GraphResult<S>;
+    async fn call(&self, state: S, context: ExecutionContext) -> GraphResult<NodeOutput<S>>;
 }
 
 /// Blanket implementation for async functions
 #[async_trait]
-impl<S, F, Fut> NodeFunction<S> for F
+impl<S, F, Fut, O> NodeFunction<S> for F
 where
     S: GraphState,
     F: Fn(S, ExecutionContext) -> Fut + Send + Sync,
-    Fut: std::future::Future<Output = GraphResult<S>> + Send,
+    Fut: std::future::Future<Output = GraphResult<O>> + Send,
+    O: Into<NodeOutput<S>> + Send,
 {
-    async fn call(&self, state: S, context: ExecutionContext) -> GraphResult<S> {
-        self(state, context).await
+    async fn call(&self, state: S, context: ExecutionContext) -> GraphResult<NodeOutput<S>> {
+        self(state, context).await.map(Into::into)
     }
 }
 
 /// Simple function without context
 #[async_trait]
-impl<S, Fut> NodeFunction<S> for fn(S) -> Fut
+impl<S, Fut, O> NodeFunction<S> for fn(S) -> Fut
 where
     S: GraphState,
-    Fut: std::future::Future<Output = GraphResult<S>> + Send,
+    Fut: std::future::Future<Output = GraphResult<O>> + Send,
+    O: Into<NodeOutput<S>> + Send,
 {
-    async fn call(&self, state: S, _context: ExecutionContext) -> GraphResult<S> {
-        self(state).await
+    async fn call(&self, state: S, _context: ExecutionContext) -> GraphResult<NodeOutput<S>> {
+        self(state).await.map(Into::into)
     }
 }
 
@@ -223,6 +276,32 @@ pub enum StreamEventData<S: GraphState> {
     Custom(JsonValue),
 }
 
+/// Details about an interrupted execution.
+#[derive(Debug, Clone, Serialize)]
+pub struct InterruptInfo<S: GraphState> {
+    /// Last known state at interruption point.
+    pub state: S,
+    /// Step where interruption occurred.
+    pub step: u32,
+    /// Node associated with the interruption (if known).
+    pub node: Option<String>,
+    /// Human-readable interruption reason.
+    pub reason: String,
+    /// Nodes to execute when resuming.
+    pub next_nodes: Vec<String>,
+    /// Thread identifier associated with this execution.
+    pub thread_id: Option<String>,
+}
+
+/// Result of an interrupt-aware graph invocation.
+#[derive(Debug, Clone, Serialize)]
+pub enum InvokeOutcome<S: GraphState> {
+    /// Graph completed normally.
+    Completed(S),
+    /// Graph was interrupted and can be resumed.
+    Interrupted(InterruptInfo<S>),
+}
+
 /// Configuration for graph execution
 #[derive(Debug, Clone, Default)]
 pub struct GraphConfig {
@@ -244,6 +323,8 @@ pub struct GraphConfig {
     pub interrupt_before: Vec<String>,
     /// Nodes to interrupt after execution
     pub interrupt_after: Vec<String>,
+    /// Internal resume hint: nodes to run first when resuming.
+    pub resume_next_nodes: Option<Vec<String>>,
 }
 
 impl GraphConfig {
@@ -307,6 +388,12 @@ impl GraphConfig {
     /// Add interrupt after node
     pub fn with_interrupt_after(mut self, node: impl Into<String>) -> Self {
         self.interrupt_after.push(node.into());
+        self
+    }
+
+    /// Set explicit nodes to run first when resuming.
+    pub fn with_resume_next_nodes(mut self, nodes: Vec<String>) -> Self {
+        self.resume_next_nodes = Some(nodes);
         self
     }
 }

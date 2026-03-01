@@ -1,8 +1,9 @@
 //! Basic agent example demonstrating core LangGraph functionality
 
 use rust_langgraph::prelude::*;
-use langgraph_core::StreamEventData;
+use langgraph_core::{StateUpdate, StreamEventData};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use futures::StreamExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,7 +14,7 @@ struct AgentState {
 }
 
 // Simple chatbot node that echoes user input
-async fn chatbot_node(state: AgentState, _context: ExecutionContext) -> GraphResult<AgentState> {
+async fn chatbot_node(state: AgentState, _context: ExecutionContext) -> GraphResult<StateUpdate> {
     println!("Chatbot processing: {}", state.user_input);
 
     let mut messages = state.messages;
@@ -23,15 +24,15 @@ async fn chatbot_node(state: AgentState, _context: ExecutionContext) -> GraphRes
         state.user_input
     ));
 
-    Ok(AgentState {
-        messages,
-        user_input: state.user_input,
-        step_count: state.step_count + 1,
-    })
+    let mut update = StateUpdate::new();
+    update.insert("messages".to_string(), serde_json::to_value(messages)?);
+    update.insert("user_input".to_string(), Value::from(state.user_input));
+    update.insert("step_count".to_string(), Value::from(state.step_count + 1));
+    Ok(update)
 }
 
 // Analysis node that provides feedback
-async fn analysis_node(state: AgentState, _context: ExecutionContext) -> GraphResult<AgentState> {
+async fn analysis_node(state: AgentState, _context: ExecutionContext) -> GraphResult<StateUpdate> {
     println!("Analysis node processing {} messages", state.messages.len());
 
     let mut messages = state.messages;
@@ -40,11 +41,11 @@ async fn analysis_node(state: AgentState, _context: ExecutionContext) -> GraphRe
         state.step_count
     ));
 
-    Ok(AgentState {
-        messages,
-        user_input: state.user_input,
-        step_count: state.step_count + 1,
-    })
+    let mut update = StateUpdate::new();
+    update.insert("messages".to_string(), serde_json::to_value(messages)?);
+    update.insert("user_input".to_string(), Value::from(state.user_input));
+    update.insert("step_count".to_string(), Value::from(state.step_count + 1));
+    Ok(update)
 }
 
 // Conditional function to decide next node

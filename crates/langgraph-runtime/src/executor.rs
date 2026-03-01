@@ -2,8 +2,6 @@
 
 use crate::runtime::{LangGraphRuntime, RuntimeConfig};
 use langgraph_checkpoint::Checkpointer;
-#[cfg(test)]
-use langgraph_core::ExecutionContext;
 use langgraph_core::{
     CompiledGraph, GraphConfig, GraphResult, GraphState, LangGraphError, StreamEvent,
 };
@@ -111,6 +109,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use langgraph_core::ExecutionContext;
+    use langgraph_core::StateUpdate;
     use langgraph_core::{StateGraph, END, START};
     use serde::{Deserialize, Serialize};
 
@@ -122,10 +122,10 @@ mod tests {
     async fn increment_node(
         state: TestState,
         _context: ExecutionContext,
-    ) -> GraphResult<TestState> {
-        Ok(TestState {
-            value: state.value + 1,
-        })
+    ) -> GraphResult<StateUpdate> {
+        let mut update = StateUpdate::new();
+        update.insert("value".to_string(), serde_json::json!(state.value + 1));
+        Ok(update)
     }
 
     #[tokio::test]

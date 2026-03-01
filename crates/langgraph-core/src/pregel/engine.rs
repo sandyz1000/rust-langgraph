@@ -1,26 +1,26 @@
 //! Core Pregel execution engine implementation
-//! 
+//!
 //! What is BSP (Bulk Synchronous Parallel)?
 //! BSP is a parallel computing model that consists of three key phases that repeat in cycles called "supersteps":
 //!
 //! ### 🔄 The Three BSP Phases:
 //! - *🏃 COMPUTATION Phase*: All processors/nodes execute tasks in parallel using only data from the previous superstep
 //! - *📡 COMMUNICATION Phase*: All processors send messages/updates to other processors
-//! - *⚡ SYNCHRONIZATION Phase*: A global synchronization barrier where all processors wait for others to complete 
+//! - *⚡ SYNCHRONIZATION Phase*: A global synchronization barrier where all processors wait for others to complete
 //! before proceeding to the next superstep
-//! 
+//!
 //! ### 💡 Key BSP Principles in LangGraph:
 //! - *Parallel Execution*: All nodes in a superstep run simultaneously without interfering with each other
 //! - *Immutable Input*: During execution, nodes only see the state from the previous step - no mid-step state changes
 //! - *Atomic Updates*: All state changes are collected first, then applied together after all nodes complete
 //! - *Synchronization Barrier*: The system waits for all nodes to finish before moving to the next step
-//! 
+//!
 //! ### 🔍 In the Code:
-//! ```
+//! ```text
 //! // Phase 1: COMPUTATION - Execute all tasks in parallel
 //! let task_results = self.scheduler.execute_tasks(tasks).await?;
 //!
-//! // Phase 2: COMMUNICATION - Collect all outputs 
+//! // Phase 2: COMMUNICATION - Collect all outputs
 //! let mut state_updates = Vec::new();
 //! for result in task_results { /* collect state changes */ }
 //!
@@ -32,14 +32,16 @@
 //! - *Deterministic*: Same input always produces same output regardless of execution timing
 //! - *Scalable*: Nodes can run on different processors/threads safely
 //! - *Fault Tolerant*: Each superstep is atomic - if something fails, you can restart from the last completed step
-//! 
+//!
+use crate::channels::{BinaryOpReducer, ChannelSpec, ChannelType};
 use crate::constants::{END, MAX_RECURSION_DEPTH};
 use crate::errors::{GraphResult, LangGraphError};
 use crate::graph::CompiledGraph;
 use crate::pregel::{PregelTask, TaskResult, TaskScheduler, TaskStatus};
 use crate::types::{
-    ExecutionContext, ExecutionStats, GraphConfig, GraphState, MemoryStats, StateSnapshot,
-    StreamEvent, StreamEventData, StreamEventType,
+    CachePolicy, ExecutionContext, ExecutionStats, GraphConfig, GraphState, MemoryStats,
+    RetryPolicy, StateSnapshot, StateUpdate, StreamEvent, StreamEventData, StreamEventType,
+    StreamMode,
 };
 use chrono::Utc;
 use dashmap::DashMap;
@@ -61,6 +63,8 @@ pub struct PregelEngine<S: GraphState> {
     executions: Arc<DashMap<String, ExecutionState<S>>>,
     /// Graph snapshots for debugging/monitoring
     snapshots: Arc<DashMap<String, Vec<StateSnapshot<S>>>>,
+    /// Node-level cache for deterministic pure-node updates
+    node_cache: Arc<DashMap<String, StateUpdate>>,
     /// Execution statistics
     stats: Arc<RwLock<ExecutionStats>>,
 }
@@ -76,10 +80,12 @@ struct ExecutionState<S: GraphState> {
     config: GraphConfig,
     /// Event broadcaster for streaming
     event_sender: broadcast::Sender<StreamEvent<S>>,
-    /// Channel versions for change detection
-    channel_versions: Arc<RwLock<HashMap<String, u32>>>,
-    /// Updated channels from previous step
-    updated_channels: Arc<RwLock<HashSet<String>>>,
+    /// Nodes executed in the previous superstep
+    previous_nodes: Arc<RwLock<Vec<String>>>,
+    /// Explicit next nodes requested by command routing
+    next_nodes_override: Arc<RwLock<Option<Vec<String>>>>,
+    /// Last computed next nodes for checkpoint snapshots
+    next_nodes_for_checkpoint: Arc<RwLock<Vec<String>>>,
     /// Status of current execution
     status: Arc<RwLock<ExecutionStatus>>,
 }
@@ -108,6 +114,7 @@ impl<S: GraphState> PregelEngine<S> {
             scheduler: TaskScheduler::new(),
             executions: Arc::new(DashMap::new()),
             snapshots: Arc::new(DashMap::new()),
+            node_cache: Arc::new(DashMap::new()),
             stats: Arc::new(RwLock::new(ExecutionStats {
                 total_time_ms: 0,
                 steps: 0,
@@ -149,10 +156,21 @@ impl<S: GraphState> PregelEngine<S> {
             context,
             config: config.clone(),
             event_sender: event_sender.clone(),
-            channel_versions: Arc::new(RwLock::new(HashMap::new())),
-            updated_channels: Arc::new(RwLock::new(HashSet::new())),
+            previous_nodes: Arc::new(RwLock::new(Vec::new())),
+            next_nodes_override: Arc::new(RwLock::new(config.resume_next_nodes.clone())),
+            next_nodes_for_checkpoint: Arc::new(RwLock::new(graph.entry_points.clone())),
             status: Arc::new(RwLock::new(ExecutionStatus::Input)),
         };
+
+        // Send graph start event
+        let start_event = StreamEvent {
+            event_type: StreamEventType::GraphStart,
+            timestamp: Utc::now(),
+            step: 0,
+            node: None,
+            data: StreamEventData::State(input.clone()),
+        };
+        self.emit_event(&execution_state, start_event);
 
         // Store execution state
         self.executions
@@ -165,7 +183,13 @@ impl<S: GraphState> PregelEngine<S> {
             step: 0,
             next_nodes: graph.entry_points.clone(),
             timestamp: Utc::now(),
-            metadata: HashMap::new(),
+            metadata: HashMap::from([
+                ("thread_id".to_string(), serde_json::json!(thread_id)),
+                (
+                    "config".to_string(),
+                    serde_json::json!(config.config.clone()),
+                ),
+            ]),
         };
 
         // Store snapshot
@@ -173,16 +197,6 @@ impl<S: GraphState> PregelEngine<S> {
             .entry(thread_id.clone())
             .or_insert_with(Vec::new)
             .push(initial_snapshot);
-
-        // Send graph start event
-        let start_event = StreamEvent {
-            event_type: StreamEventType::GraphStart,
-            timestamp: Utc::now(),
-            step: 0,
-            node: None,
-            data: StreamEventData::State(input.clone()),
-        };
-        let _ = event_sender.send(start_event);
 
         // Start execution
         self.execute_graph(graph, &execution_id).await?;
@@ -231,12 +245,16 @@ impl<S: GraphState> PregelEngine<S> {
 
             // Check recursion depth
             let current_step = execution.step.load(Ordering::Relaxed);
-            if current_step >= MAX_RECURSION_DEPTH as u32 {
+            let step_limit = execution
+                .config
+                .max_steps
+                .unwrap_or(MAX_RECURSION_DEPTH as u32);
+            if current_step >= step_limit {
                 {
                     let mut status = execution.status.write().await;
                     *status = ExecutionStatus::OutOfSteps;
                 }
-                return Err(LangGraphError::recursion_limit(MAX_RECURSION_DEPTH));
+                return Err(LangGraphError::recursion_limit(step_limit as usize));
             }
 
             // Create checkpoint if configured
@@ -266,7 +284,7 @@ impl<S: GraphState> PregelEngine<S> {
                     node: None,
                     data: StreamEventData::State(final_state),
                 };
-                let _ = execution.event_sender.send(complete_event);
+                self.emit_event(&execution, complete_event);
             }
             ExecutionStatus::InterruptBefore | ExecutionStatus::InterruptAfter => {
                 // Interruption was handled during execution
@@ -283,6 +301,7 @@ impl<S: GraphState> PregelEngine<S> {
         }
 
         // Clean up execution
+        drop(execution);
         self.executions.remove(execution_id);
         Ok(())
     }
@@ -338,6 +357,11 @@ impl<S: GraphState> PregelEngine<S> {
         // This is equivalent to loop.after_tick()
         let has_more_work = self.after_tick(graph, &execution, &task_results).await?;
 
+        if !has_more_work {
+            let mut status = execution.status.write().await;
+            *status = ExecutionStatus::Done;
+        }
+
         Ok(has_more_work)
     }
 
@@ -348,37 +372,48 @@ impl<S: GraphState> PregelEngine<S> {
         execution: &ExecutionState<S>,
         step: u32,
     ) -> GraphResult<Vec<String>> {
+        // Command-driven routing takes precedence over static edge/branch routing
+        {
+            let mut override_nodes = execution.next_nodes_override.write().await;
+            if let Some(nodes) = override_nodes.take() {
+                return Ok(nodes);
+            }
+        }
+
         // For the first step, use entry points
         if step == 1 {
             return Ok(graph.entry_points.clone());
         }
 
-        // For subsequent steps, determine nodes to execute based on updated channels
-        // This would be more sophisticated in a full channel-based implementation
-        let updated_channels = {
-            let channels = execution.updated_channels.read().await;
-            channels.clone()
+        let previous_nodes = {
+            let nodes = execution.previous_nodes.read().await;
+            nodes.clone()
         };
 
-        let mut candidate_nodes = Vec::new();
+        if previous_nodes.is_empty() {
+            return Ok(Vec::new());
+        }
 
-        // Simplified node selection - in full implementation, this would use
-        // trigger_to_nodes mapping and channel analysis
-        for node_name in graph.nodes.keys() {
-            // Check if this node should be triggered based on channel updates
-            // For now, simplified logic based on graph structure
-            if self
-                .should_trigger_node(graph, node_name, &updated_channels)
-                .await?
-            {
-                candidate_nodes.push(node_name.clone());
+        let current_state = {
+            let state = execution.current_state.read().await;
+            state.clone()
+        };
+
+        let mut next_nodes = HashSet::new();
+        for node_name in &previous_nodes {
+            let successors = self
+                .get_next_nodes(graph, node_name, &current_state)
+                .await?;
+            for successor in successors {
+                if successor != END && !graph.finish_points.contains(&successor) {
+                    next_nodes.insert(successor);
+                }
             }
         }
 
-        // Remove finished nodes
-        candidate_nodes.retain(|node| !graph.finish_points.contains(node) && node != END);
-
-        Ok(candidate_nodes)
+        let mut ordered = next_nodes.into_iter().collect::<Vec<_>>();
+        ordered.sort();
+        Ok(ordered)
     }
 
     /// Execute BSP step - all tasks run in parallel, results collected before channel updates
@@ -388,7 +423,7 @@ impl<S: GraphState> PregelEngine<S> {
         graph: &CompiledGraph<S>,
         execution_id: &str,
         current_nodes: &[String],
-    ) -> GraphResult<Vec<TaskResult<S>>> {
+    ) -> GraphResult<Vec<TaskResult>> {
         let execution = self
             .executions
             .get(execution_id)
@@ -396,6 +431,8 @@ impl<S: GraphState> PregelEngine<S> {
 
         let current_step = execution.step.load(Ordering::Relaxed);
         let mut tasks = Vec::new();
+        let mut cached_results = Vec::new();
+        let mut cache_keys_by_task_id: HashMap<String, String> = HashMap::new();
 
         // PREPARE TASKS - Create executable tasks for each node
         for node_name in current_nodes {
@@ -411,8 +448,51 @@ impl<S: GraphState> PregelEngine<S> {
                 task_context.node_name = node_name.clone();
                 task_context.step = current_step;
 
+                let max_steps = execution
+                    .config
+                    .max_steps
+                    .unwrap_or(MAX_RECURSION_DEPTH as u32);
+                let remaining_steps = max_steps.saturating_sub(current_step);
+                task_context
+                    .set_metadata("remaining_steps", remaining_steps)
+                    .ok();
+                task_context
+                    .set_metadata("is_last_step", current_step >= max_steps)
+                    .ok();
+
+                if let Some(RetryPolicy {
+                    max_retries,
+                    base_delay_ms,
+                    ..
+                }) = &node_spec.retry_policy
+                {
+                    task_context.set_config("max_retries", *max_retries).ok();
+                    task_context
+                        .set_config("retry_delay_ms", *base_delay_ms)
+                        .ok();
+                }
+
+                if let Some(timeout_ms) = execution.config.timeout_ms {
+                    task_context.set_config("timeout_ms", timeout_ms).ok();
+                }
+
                 // Generate deterministic task ID
                 let task_id = format!("{}:{}:{}", execution_id, current_step, node_name);
+
+                if let Some(CachePolicy { enabled: true, .. }) = node_spec.cache_policy.as_ref() {
+                    let cache_input = serde_json::to_string(&node_input)?;
+                    let cache_key = format!("{}:{}", node_name, cache_input);
+                    if let Some(cached) = self.node_cache.get(&cache_key) {
+                        cached_results.push(TaskResult::success(
+                            task_id.clone(),
+                            node_name.clone(),
+                            cached.clone(),
+                            0,
+                        ));
+                        continue;
+                    }
+                    cache_keys_by_task_id.insert(task_id.clone(), cache_key);
+                }
 
                 let task = PregelTask::new(
                     task_id.clone(),
@@ -434,12 +514,22 @@ impl<S: GraphState> PregelEngine<S> {
                         "task_id": task_id
                     })),
                 };
-                let _ = execution.event_sender.send(start_event);
+                self.emit_event(&execution, start_event);
             }
         }
 
         // EXECUTE ALL TASKS IN PARALLEL (Bulk Synchronous Parallel)
-        let task_results = self.scheduler.execute_tasks(tasks).await?;
+        let mut task_results = self.scheduler.execute_tasks(tasks).await?;
+        task_results.extend(cached_results);
+
+        for result in &task_results {
+            if let (Some(update), Some(cache_key)) = (
+                result.output_update.as_ref(),
+                cache_keys_by_task_id.get(&result.task_id),
+            ) {
+                self.node_cache.insert(cache_key.clone(), update.clone());
+            }
+        }
 
         // Process results and emit events
         for result in &task_results {
@@ -452,10 +542,26 @@ impl<S: GraphState> PregelEngine<S> {
                         node: Some(result.node_name.clone()),
                         data: StreamEventData::Custom(serde_json::json!({
                             "duration_ms": result.duration_ms,
-                            "has_writes": result.output_state.is_some()
+                            "has_writes": result.output_update.is_some()
                         })),
                     };
-                    let _ = execution.event_sender.send(complete_event);
+                    self.emit_event(&execution, complete_event);
+
+                    if matches!(
+                        execution.config.stream_mode,
+                        StreamMode::Updates | StreamMode::Debug | StreamMode::Custom
+                    ) {
+                        if let Some(ref update) = result.output_update {
+                            let update_event = StreamEvent {
+                                event_type: StreamEventType::StateUpdate,
+                                timestamp: Utc::now(),
+                                step: current_step,
+                                node: Some(result.node_name.clone()),
+                                data: StreamEventData::Update(serde_json::to_value(update)?),
+                            };
+                            self.emit_event(&execution, update_event);
+                        }
+                    }
                 }
                 TaskStatus::Failed => {
                     let error_event = StreamEvent {
@@ -471,7 +577,7 @@ impl<S: GraphState> PregelEngine<S> {
                             code: 1001,
                         },
                     };
-                    let _ = execution.event_sender.send(error_event);
+                    self.emit_event(&execution, error_event);
 
                     return Err(LangGraphError::node_execution(
                         result.node_name.clone(),
@@ -491,25 +597,74 @@ impl<S: GraphState> PregelEngine<S> {
         &self,
         graph: &CompiledGraph<S>,
         execution: &ExecutionState<S>,
-        task_results: &[TaskResult<S>],
+        task_results: &[TaskResult],
     ) -> GraphResult<bool> {
         let current_step = execution.step.load(Ordering::Relaxed);
 
         // Collect all state writes from completed tasks
         let mut state_updates = Vec::new();
+        let mut completed_nodes = Vec::new();
+        let mut command_next_nodes = HashSet::new();
+        let mut interrupt_message = None;
         for result in task_results {
-            if let (TaskStatus::Completed, Some(ref new_state)) =
-                (&result.status, &result.output_state)
+            if let (TaskStatus::Completed, Some(ref update)) =
+                (&result.status, &result.output_update)
             {
-                state_updates.push((result.node_name.clone(), new_state.clone()));
+                state_updates.push((result.node_name.clone(), update.clone()));
+                completed_nodes.push(result.node_name.clone());
             }
+
+            if let Some(ref targets) = result.routing_targets {
+                for target in targets {
+                    if target == END {
+                        continue;
+                    }
+
+                    if !graph.nodes.contains_key(target) {
+                        return Err(LangGraphError::node_not_found(target));
+                    }
+
+                    command_next_nodes.insert(target.clone());
+                }
+            }
+
+            if interrupt_message.is_none() {
+                interrupt_message = result.interrupt_message.clone();
+            }
+        }
+
+        if state_updates.is_empty() {
+            if let Some(message) = interrupt_message {
+                self.send_interrupt_event(&execution, &completed_nodes, &message)
+                    .await?;
+                let mut status = execution.status.write().await;
+                *status = ExecutionStatus::InterruptAfter;
+                return Ok(false);
+            }
+
+            if !command_next_nodes.is_empty() {
+                let mut explicit_next = command_next_nodes.into_iter().collect::<Vec<_>>();
+                explicit_next.sort();
+
+                {
+                    let mut checkpoint_next = execution.next_nodes_for_checkpoint.write().await;
+                    *checkpoint_next = explicit_next.clone();
+                }
+
+                let mut override_nodes = execution.next_nodes_override.write().await;
+                *override_nodes = Some(explicit_next);
+                return Ok(true);
+            }
+
+            // No writes and no command routing means no more work
+            return Ok(false);
         }
 
         // Apply all writes atomically to channels
         if !state_updates.is_empty() {
             let final_state = {
                 let current_state = execution.current_state.read().await;
-                self.merge_states(&current_state, &state_updates)?
+                self.merge_states(&current_state, &state_updates, Some(&graph.channels))?
             };
 
             // Update execution state (channel values)
@@ -518,18 +673,10 @@ impl<S: GraphState> PregelEngine<S> {
                 *state = final_state.clone();
             }
 
-            // Track updated channels for next step's task preparation
+            // Track completed nodes for next step scheduling
             {
-                let mut updated_channels = execution.updated_channels.write().await;
-                updated_channels.clear();
-                // In a full implementation, this would track specific channels
-                updated_channels.insert("__state__".to_string());
-            }
-
-            // Update channel versions
-            {
-                let mut versions = execution.channel_versions.write().await;
-                versions.insert("__state__".to_string(), current_step);
+                let mut previous_nodes = execution.previous_nodes.write().await;
+                *previous_nodes = completed_nodes.clone();
             }
 
             // Emit state update event
@@ -538,63 +685,67 @@ impl<S: GraphState> PregelEngine<S> {
                 timestamp: Utc::now(),
                 step: current_step,
                 node: None, // Multiple nodes contributed
-                data: StreamEventData::State(final_state),
+                data: StreamEventData::State(final_state.clone()),
             };
-            let _ = execution.event_sender.send(update_event);
+            self.emit_event(&execution, update_event);
+
+            // If a node requested an interrupt command, stop execution after applying updates
+            if let Some(message) = interrupt_message {
+                self.send_interrupt_event(&execution, &completed_nodes, &message)
+                    .await?;
+                let mut status = execution.status.write().await;
+                *status = ExecutionStatus::InterruptAfter;
+                return Ok(false);
+            }
+
+            // Command-driven routing overrides static edge/branch routing for next step
+            if !command_next_nodes.is_empty() {
+                let mut explicit_next = command_next_nodes.into_iter().collect::<Vec<_>>();
+                explicit_next.sort();
+
+                {
+                    let mut checkpoint_next = execution.next_nodes_for_checkpoint.write().await;
+                    *checkpoint_next = explicit_next.clone();
+                }
+
+                let mut override_nodes = execution.next_nodes_override.write().await;
+                *override_nodes = Some(explicit_next);
+                return Ok(true);
+            }
 
             // Determine if there's more work by checking for next nodes
-            let has_next_nodes = self.has_next_nodes(graph, &state_updates).await?;
+            let mut has_next_nodes = false;
+            let mut aggregate_next_nodes = HashSet::new();
+            for node_name in &completed_nodes {
+                let next_nodes = self.get_next_nodes(graph, node_name, &final_state).await?;
+                if !next_nodes.is_empty() {
+                    has_next_nodes = true;
+                    aggregate_next_nodes.extend(next_nodes);
+                }
+            }
+
+            if has_next_nodes {
+                let mut ordered_next = aggregate_next_nodes.into_iter().collect::<Vec<_>>();
+                ordered_next.sort();
+                let mut checkpoint_next = execution.next_nodes_for_checkpoint.write().await;
+                *checkpoint_next = ordered_next;
+            }
             return Ok(has_next_nodes);
         }
 
-        // No writes means no more work
         Ok(false)
-    }
-
-    /// Check if any completed nodes have outgoing edges (simplified next node detection)
-    async fn has_next_nodes(
-        &self,
-        graph: &CompiledGraph<S>,
-        state_updates: &[(String, S)],
-    ) -> GraphResult<bool> {
-        for (node_name, node_state) in state_updates {
-            let next_nodes = self.get_next_nodes(graph, node_name, node_state).await?;
-            if !next_nodes.is_empty() {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Simplified node triggering logic (in full implementation, this uses channel analysis)
-    async fn should_trigger_node(
-        &self,
-        graph: &CompiledGraph<S>,
-        node_name: &str,
-        _updated_channels: &HashSet<String>,
-    ) -> GraphResult<bool> {
-        // Simplified: check if node has incoming edges from nodes that might have run
-        // In full implementation, this would analyze channel subscriptions
-        for edge in &graph.edges {
-            if edge.to == node_name {
-                return Ok(true);
-            }
-        }
-
-        // Check if it's a conditional branch target
-        Ok(graph.branches.contains_key(node_name))
     }
 
     /// Merge multiple state updates into a single state for workflow management
     /// Uses a sophisticated merge strategy suitable for workflow orchestration
-    fn merge_states(&self, base_state: &S, updates: &Vec<(String, S)>) -> GraphResult<S> {
+    fn merge_states(
+        &self,
+        base_state: &S,
+        updates: &Vec<(String, StateUpdate)>,
+        channels: Option<&HashMap<String, ChannelSpec>>,
+    ) -> GraphResult<S> {
         if updates.is_empty() {
             return Ok(base_state.clone());
-        }
-
-        // If only one update, use it directly (optimization)
-        if updates.len() == 1 {
-            return updates[0].1.merge(&base_state);
         }
 
         let mut merged_state = base_state.clone();
@@ -605,21 +756,211 @@ impl<S: GraphState> PregelEngine<S> {
         prioritized_updates.sort_by(|a, b| {
             self.get_node_priority(&a.0)
                 .cmp(&self.get_node_priority(&b.0))
+                .then_with(|| a.0.cmp(&b.0))
         });
 
-        for (node_name, update_state) in prioritized_updates {
-            merged_state = self.merge_single_state(merged_state, update_state, &node_name)?;
+        for (node_name, update) in prioritized_updates {
+            merged_state = self.merge_single_state(&merged_state, &update, &node_name, channels)?;
         }
 
         Ok(merged_state)
     }
 
     /// Merge a single state update with sophisticated conflict resolution
-    fn merge_single_state(&self, base: S, update: S, _node_name: &str) -> GraphResult<S> {
-        // For now, use the simple merge method from GraphState trait
-        // In the future, we can add more sophisticated merge logic here
-        // that checks if S implements GraphStateWorkflowMerge and uses that
-        update.merge(&base)
+    fn merge_single_state(
+        &self,
+        base: &S,
+        update: &StateUpdate,
+        _node_name: &str,
+        channels: Option<&HashMap<String, ChannelSpec>>,
+    ) -> GraphResult<S> {
+        let mut base_json = serde_json::to_value(base)?;
+
+        if let serde_json::Value::Object(base_map) = &mut base_json {
+            for (key, value) in update {
+                if let Some(spec) = channels.and_then(|channel_map| channel_map.get(key)) {
+                    let merged_value = Self::merge_channel_value(spec, base_map.get(key), value)?;
+                    base_map.insert(key.clone(), merged_value);
+                } else {
+                    base_map.insert(key.clone(), value.clone());
+                }
+            }
+        } else {
+            return Err(LangGraphError::invalid_update(
+                "GraphState must serialize to JSON object for StateUpdate merging",
+            ));
+        }
+
+        serde_json::from_value(base_json).map_err(LangGraphError::from)
+    }
+
+    fn merge_channel_value(
+        spec: &ChannelSpec,
+        current: Option<&serde_json::Value>,
+        incoming: &serde_json::Value,
+    ) -> GraphResult<serde_json::Value> {
+        match &spec.channel_type {
+            ChannelType::LastValue | ChannelType::Ephemeral => Ok(incoming.clone()),
+            ChannelType::Accumulator => {
+                let mut out = match current {
+                    Some(serde_json::Value::Array(existing)) => existing.clone(),
+                    Some(existing) => vec![existing.clone()],
+                    None => Vec::new(),
+                };
+
+                match incoming {
+                    serde_json::Value::Array(values) => out.extend(values.clone()),
+                    value => out.push(value.clone()),
+                }
+
+                Ok(serde_json::Value::Array(out))
+            }
+            ChannelType::BinaryOp { reducer } => match reducer {
+                BinaryOpReducer::Add => {
+                    if incoming.is_i64() {
+                        let current_num = current.and_then(|v| v.as_i64()).unwrap_or(0);
+                        let incoming_num = incoming.as_i64().ok_or_else(|| {
+                            LangGraphError::invalid_update(
+                                "BinaryOp(add) requires numeric update values",
+                            )
+                        })?;
+                        let sum = current_num.saturating_add(incoming_num);
+                        return Ok(serde_json::Value::Number(serde_json::Number::from(sum)));
+                    }
+
+                    if incoming.is_u64() {
+                        let current_num = current.and_then(|v| v.as_u64()).unwrap_or(0);
+                        let incoming_num = incoming.as_u64().ok_or_else(|| {
+                            LangGraphError::invalid_update(
+                                "BinaryOp(add) requires numeric update values",
+                            )
+                        })?;
+                        let sum = current_num.saturating_add(incoming_num);
+                        return Ok(serde_json::Value::Number(serde_json::Number::from(sum)));
+                    }
+
+                    let current_num = current.and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let incoming_num = incoming.as_f64().ok_or_else(|| {
+                        LangGraphError::invalid_update(
+                            "BinaryOp(add) requires numeric update values",
+                        )
+                    })?;
+
+                    let sum = current_num + incoming_num;
+                    if let Some(number) = serde_json::Number::from_f64(sum) {
+                        Ok(serde_json::Value::Number(number))
+                    } else {
+                        Err(LangGraphError::invalid_update(
+                            "BinaryOp(add) produced a non-finite number",
+                        ))
+                    }
+                }
+                BinaryOpReducer::Max => {
+                    if incoming.is_i64() {
+                        let current_num = current.and_then(|v| v.as_i64()).unwrap_or(i64::MIN);
+                        let incoming_num = incoming.as_i64().ok_or_else(|| {
+                            LangGraphError::invalid_update(
+                                "BinaryOp(max) requires numeric update values",
+                            )
+                        })?;
+                        return Ok(serde_json::Value::Number(serde_json::Number::from(
+                            current_num.max(incoming_num),
+                        )));
+                    }
+
+                    if incoming.is_u64() {
+                        let current_num = current.and_then(|v| v.as_u64()).unwrap_or(0);
+                        let incoming_num = incoming.as_u64().ok_or_else(|| {
+                            LangGraphError::invalid_update(
+                                "BinaryOp(max) requires numeric update values",
+                            )
+                        })?;
+                        return Ok(serde_json::Value::Number(serde_json::Number::from(
+                            current_num.max(incoming_num),
+                        )));
+                    }
+
+                    let current_num = current
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(f64::NEG_INFINITY);
+                    let incoming_num = incoming.as_f64().ok_or_else(|| {
+                        LangGraphError::invalid_update(
+                            "BinaryOp(max) requires numeric update values",
+                        )
+                    })?;
+                    let out = current_num.max(incoming_num);
+                    if let Some(number) = serde_json::Number::from_f64(out) {
+                        Ok(serde_json::Value::Number(number))
+                    } else {
+                        Err(LangGraphError::invalid_update(
+                            "BinaryOp(max) produced a non-finite number",
+                        ))
+                    }
+                }
+                BinaryOpReducer::Min => {
+                    if incoming.is_i64() {
+                        let current_num = current.and_then(|v| v.as_i64()).unwrap_or(i64::MAX);
+                        let incoming_num = incoming.as_i64().ok_or_else(|| {
+                            LangGraphError::invalid_update(
+                                "BinaryOp(min) requires numeric update values",
+                            )
+                        })?;
+                        return Ok(serde_json::Value::Number(serde_json::Number::from(
+                            current_num.min(incoming_num),
+                        )));
+                    }
+
+                    if incoming.is_u64() {
+                        let current_num = current.and_then(|v| v.as_u64()).unwrap_or(u64::MAX);
+                        let incoming_num = incoming.as_u64().ok_or_else(|| {
+                            LangGraphError::invalid_update(
+                                "BinaryOp(min) requires numeric update values",
+                            )
+                        })?;
+                        return Ok(serde_json::Value::Number(serde_json::Number::from(
+                            current_num.min(incoming_num),
+                        )));
+                    }
+
+                    let current_num = current.and_then(|v| v.as_f64()).unwrap_or(f64::INFINITY);
+                    let incoming_num = incoming.as_f64().ok_or_else(|| {
+                        LangGraphError::invalid_update(
+                            "BinaryOp(min) requires numeric update values",
+                        )
+                    })?;
+                    let out = current_num.min(incoming_num);
+                    if let Some(number) = serde_json::Number::from_f64(out) {
+                        Ok(serde_json::Value::Number(number))
+                    } else {
+                        Err(LangGraphError::invalid_update(
+                            "BinaryOp(min) produced a non-finite number",
+                        ))
+                    }
+                }
+                BinaryOpReducer::Concat => match incoming {
+                    serde_json::Value::String(s) => {
+                        let mut out = current
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        out.push_str(s);
+                        Ok(serde_json::Value::String(out))
+                    }
+                    serde_json::Value::Array(values) => {
+                        let mut out = match current {
+                            Some(serde_json::Value::Array(existing)) => existing.clone(),
+                            Some(existing) => vec![existing.clone()],
+                            None => Vec::new(),
+                        };
+                        out.extend(values.clone());
+                        Ok(serde_json::Value::Array(out))
+                    }
+                    _ => Err(LangGraphError::invalid_update(
+                        "BinaryOp(concat) requires string or array update values",
+                    )),
+                },
+            },
+        }
     }
 
     /// Get node priority for deterministic merging
@@ -696,19 +1037,52 @@ impl<S: GraphState> PregelEngine<S> {
         &self,
         execution: &ExecutionState<S>,
         nodes: &[String],
-        when: &str,
+        reason: &str,
     ) -> GraphResult<()> {
+        let step = execution.step.load(Ordering::Relaxed);
+
+        let interrupt_state = {
+            let state = execution.current_state.read().await;
+            state.clone()
+        };
+
+        let snapshot = StateSnapshot {
+            id: Uuid::new_v4().to_string(),
+            state: interrupt_state,
+            step,
+            next_nodes: nodes.to_vec(),
+            timestamp: Utc::now(),
+            metadata: HashMap::from([
+                ("interrupted".to_string(), serde_json::Value::Bool(true)),
+                (
+                    "reason".to_string(),
+                    serde_json::Value::String(reason.to_string()),
+                ),
+                (
+                    "config".to_string(),
+                    serde_json::json!(execution.config.config.clone()),
+                ),
+            ]),
+        };
+
+        if let Some(thread_id) = &execution.context.thread_id {
+            self.snapshots
+                .entry(thread_id.clone())
+                .or_insert_with(Vec::new)
+                .push(snapshot);
+        }
+
         let interrupt_event = StreamEvent {
             event_type: StreamEventType::Custom("interrupt".to_string()),
             timestamp: Utc::now(),
-            step: execution.step.load(Ordering::Relaxed),
+            step,
             node: nodes.first().cloned(),
             data: StreamEventData::Custom(serde_json::json!({
-                "when": when,
+                "reason": reason,
                 "nodes": nodes
             })),
         };
-        let _ = execution.event_sender.send(interrupt_event);
+        self.emit_event(execution, interrupt_event);
         Ok(())
     }
 
@@ -719,13 +1093,21 @@ impl<S: GraphState> PregelEngine<S> {
             state.clone()
         };
 
+        let next_nodes = {
+            let nodes = execution.next_nodes_for_checkpoint.read().await;
+            nodes.clone()
+        };
+
         let snapshot = StateSnapshot {
             id: Uuid::new_v4().to_string(),
             state: state.clone(),
             step,
-            next_nodes: vec![], // Would be populated with actual next nodes
+            next_nodes,
             timestamp: Utc::now(),
-            metadata: HashMap::new(),
+            metadata: HashMap::from([(
+                "config".to_string(),
+                serde_json::json!(execution.config.config.clone()),
+            )]),
         };
 
         // Store snapshot
@@ -748,7 +1130,7 @@ impl<S: GraphState> PregelEngine<S> {
                 step,
             },
         };
-        let _ = execution.event_sender.send(checkpoint_event);
+        self.emit_event(execution, checkpoint_event);
 
         Ok(())
     }
@@ -815,5 +1197,53 @@ impl<S: GraphState> PregelEngine<S> {
     {
         let mut stats = self.stats.write().await;
         updater(&mut *stats);
+    }
+}
+
+impl<S: GraphState> PregelEngine<S> {
+    fn emit_event(&self, execution: &ExecutionState<S>, event: StreamEvent<S>) {
+        if Self::should_emit_event(&execution.config.stream_mode, &event.event_type) {
+            let _ = execution.event_sender.send(event);
+        }
+    }
+
+    fn should_emit_event(mode: &StreamMode, event_type: &StreamEventType) -> bool {
+        let is_terminal = matches!(
+            event_type,
+            StreamEventType::GraphStart
+                | StreamEventType::GraphComplete
+                | StreamEventType::GraphError
+        );
+        if is_terminal {
+            return true;
+        }
+
+        if matches!(event_type, StreamEventType::Custom(name) if name == "interrupt") {
+            return true;
+        }
+
+        match mode {
+            StreamMode::Values => matches!(
+                event_type,
+                StreamEventType::StateUpdate | StreamEventType::Checkpoint
+            ),
+            StreamMode::Updates => matches!(
+                event_type,
+                StreamEventType::StateUpdate
+                    | StreamEventType::NodeError
+                    | StreamEventType::Checkpoint
+            ),
+            StreamMode::Checkpoints => matches!(
+                event_type,
+                StreamEventType::Checkpoint | StreamEventType::NodeError
+            ),
+            StreamMode::Tasks => matches!(
+                event_type,
+                StreamEventType::NodeStart
+                    | StreamEventType::NodeComplete
+                    | StreamEventType::NodeError
+            ),
+            StreamMode::Debug | StreamMode::Custom => true,
+        }
     }
 }

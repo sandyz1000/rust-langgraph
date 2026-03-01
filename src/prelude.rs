@@ -2,13 +2,15 @@
 
 // Core graph building types
 pub use crate::core::{
-    CompiledGraph, ExecutionContext, GraphConfig, GraphResult, GraphState, LangGraphError,
-    NodeFunction, StateGraph, StreamEvent, StreamEventType, END, START,
+    Command, CompiledGraph, END, ExecutionContext, GraphConfig, GraphResult, GraphState,
+    InterruptInfo, InvokeOutcome, LangGraphError, NodeFunction, NodeOutput, START, StateGraph,
+    StateUpdate, StreamEvent, StreamEventType,
 };
 
 // Channel types
 pub use crate::core::channels::{
-    AccumulatorChannel, BinaryOpChannel, Channel, EphemeralChannel, LastValueChannel,
+    AccumulatorChannel, BinaryOpChannel, BinaryOpReducer, Channel, ChannelSpec, ChannelType,
+    EphemeralChannel, LastValueChannel, ManagedValueChannel,
 };
 
 // Pregel execution
@@ -25,9 +27,9 @@ pub use crate::runtime::{
 
 // Prebuilt agents and tools
 pub use crate::prebuilt::{
-    create_react_agent, AgentAction, AgentMessage, AgentResponse, AgentState, AgentStep,
-    CalculatorTool, MessageRole, ReactAgentBuilder, ReactPromptTemplate, Tool, ToolCall,
-    WebSearchTool, LLM,
+    AgentAction, AgentMessage, AgentResponse, AgentState, AgentStep, CalculatorTool, LLM,
+    MessageRole, ReactAgentBuilder, ReactPromptTemplate, Tool, ToolCall, WebSearchTool,
+    create_react_agent,
 };
 
 // External re-exports for convenience
@@ -45,4 +47,4 @@ pub type DynError = Box<dyn std::error::Error + Send + Sync>;
 pub use futures::{Stream, StreamExt};
 
 // JSON utilities
-pub use serde_json::{json, Value as JsonValue};
+pub use serde_json::{Value as JsonValue, json};

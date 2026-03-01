@@ -1,17 +1,18 @@
 //! Graph definition and execution engine
 
-use crate::channels::{ChannelManager, ChannelSpec, ChannelType, LastValueChannel};
+use crate::channels::{ChannelSpec, ChannelType};
 use crate::constants::{END, START};
 use crate::errors::{GraphResult, LangGraphError};
 use crate::pregel::PregelEngine;
 use crate::types::{
-    BranchSpec, EdgeSpec, ExecutionContext, GraphConfig, GraphState, NodeFunction, NodeSpec,
-    StateSnapshot, StreamEvent,
+    BranchSpec, EdgeSpec, GraphConfig, GraphState, InterruptInfo, InvokeOutcome, NodeFunction,
+    NodeSpec, StateSnapshot, StreamEvent, StreamEventData, StreamEventType,
 };
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use tokio_stream::Stream;
+use std::sync::Arc;
+use tokio_stream::{Stream, StreamExt};
 
 /// State graph builder for creating computational graphs
 pub struct StateGraph<S: GraphState> {
@@ -25,10 +26,10 @@ pub struct StateGraph<S: GraphState> {
     entry_points: Vec<String>,
     /// Finish points of the graph
     finish_points: Vec<String>,
-    /// Channel specifications
-    channel_specs: Vec<ChannelSpec>,
     /// Graph metadata
     metadata: HashMap<String, JsonValue>,
+    /// Optional channel behavior per state key
+    channels: HashMap<String, ChannelSpec>,
     /// Whether the graph has been compiled
     compiled: bool,
 }
@@ -42,10 +43,31 @@ impl<S: GraphState> StateGraph<S> {
             branches: HashMap::new(),
             entry_points: Vec::new(),
             finish_points: Vec::new(),
-            channel_specs: Vec::new(),
             metadata: HashMap::new(),
+            channels: HashMap::new(),
             compiled: false,
         }
+    }
+
+    /// Configure channel behavior for a state key.
+    pub fn set_channel(&mut self, spec: ChannelSpec) -> GraphResult<&mut Self> {
+        if self.compiled {
+            return Err(LangGraphError::graph_validation(
+                "Cannot modify compiled graph",
+            ));
+        }
+
+        self.channels.insert(spec.name.clone(), spec);
+        Ok(self)
+    }
+
+    /// Configure channel type for a state key.
+    pub fn set_channel_type(
+        &mut self,
+        key: impl Into<String>,
+        channel_type: ChannelType,
+    ) -> GraphResult<&mut Self> {
+        self.set_channel(ChannelSpec::new(key, channel_type))
     }
 
     /// Add a node to the graph
@@ -174,6 +196,38 @@ impl<S: GraphState> StateGraph<S> {
         Ok(self)
     }
 
+    /// Add a compiled subgraph as a node with explicit state transforms.
+    pub fn add_subgraph_with_transform<SubS, ToSub, FromSub>(
+        &mut self,
+        name: impl Into<String>,
+        subgraph: CompiledGraph<SubS>,
+        to_sub_state: ToSub,
+        from_sub_state: FromSub,
+    ) -> GraphResult<&mut Self>
+    where
+        SubS: GraphState,
+        ToSub: Fn(&S) -> GraphResult<SubS> + Send + Sync + Clone + 'static,
+        FromSub:
+            Fn(&S, &SubS) -> GraphResult<crate::types::StateUpdate> + Send + Sync + Clone + 'static,
+    {
+        let name = name.into();
+        let subgraph = Arc::new(subgraph);
+
+        let node_fn = move |state: S, _context: crate::types::ExecutionContext| {
+            let subgraph = Arc::clone(&subgraph);
+            let to_sub_state = to_sub_state.clone();
+            let from_sub_state = from_sub_state.clone();
+
+            async move {
+                let sub_input = to_sub_state(&state)?;
+                let sub_output = subgraph.invoke(sub_input).await?;
+                from_sub_state(&state, &sub_output)
+            }
+        };
+
+        self.add_node(name, node_fn)
+    }
+
     /// Set the entry point of the graph
     pub fn set_entry_point(&mut self, node: impl Into<String>) -> GraphResult<&mut Self> {
         if self.compiled {
@@ -248,18 +302,6 @@ impl<S: GraphState> StateGraph<S> {
         Ok(self)
     }
 
-    /// Add a channel specification
-    pub fn add_channel(&mut self, spec: ChannelSpec) -> GraphResult<&mut Self> {
-        if self.compiled {
-            return Err(LangGraphError::graph_validation(
-                "Cannot modify compiled graph",
-            ));
-        }
-
-        self.channel_specs.push(spec);
-        Ok(self)
-    }
-
     /// Set graph metadata
     pub fn set_metadata<T>(&mut self, key: impl Into<String>, value: T) -> GraphResult<&mut Self>
     where
@@ -319,33 +361,6 @@ impl<S: GraphState> StateGraph<S> {
         self.validate()?;
         self.compiled = true;
 
-        // Create channel manager
-        let channel_manager = ChannelManager::new();
-
-        // Setup default channels for state management
-        let state_channel = LastValueChannel::<S>::new();
-        channel_manager
-            .register_channel::<S>("__state__", state_channel)
-            .await?;
-
-        // Setup additional channels from specs
-        for spec in &self.channel_specs {
-            match spec.channel_type {
-                ChannelType::LastValue => {
-                    let channel = LastValueChannel::<JsonValue>::new();
-                    channel_manager
-                        .register_channel::<JsonValue>(&spec.name, channel)
-                        .await?;
-                }
-                ChannelType::Ephemeral => {
-                    // Handle ephemeral channels
-                }
-                _ => {
-                    // Handle other channel types
-                }
-            }
-        }
-
         // Create Pregel engine
         let pregel_engine = PregelEngine::new();
 
@@ -356,6 +371,7 @@ impl<S: GraphState> StateGraph<S> {
             entry_points: self.entry_points,
             finish_points: self.finish_points,
             metadata: self.metadata,
+            channels: self.channels,
             pregel_engine,
         })
     }
@@ -381,6 +397,8 @@ pub struct CompiledGraph<S: GraphState> {
     pub(crate) finish_points: Vec<String>,
     /// Graph metadata
     pub(crate) metadata: HashMap<String, JsonValue>,
+    /// Channel behavior for state keys
+    pub(crate) channels: HashMap<String, ChannelSpec>,
     /// Pregel execution engine
     pub(crate) pregel_engine: PregelEngine<S>,
 }
@@ -393,71 +411,119 @@ impl<S: GraphState> CompiledGraph<S> {
     }
 
     /// Execute the graph with configuration
-    pub async fn invoke_with_config(&self, input: S, _config: GraphConfig) -> GraphResult<S> {
-        // Simple implementation for testing
-        // TODO: Replace with proper Pregel execution
+    pub async fn invoke_with_config(&self, input: S, config: GraphConfig) -> GraphResult<S> {
+        match self.invoke_outcome_with_config(input, config).await? {
+            InvokeOutcome::Completed(state) => Ok(state),
+            InvokeOutcome::Interrupted(interrupt) => Err(LangGraphError::interrupted(
+                interrupt.node.unwrap_or_else(|| "unknown".to_string()),
+                interrupt.reason,
+            )),
+        }
+    }
 
-        let mut current_state = input;
-        let mut step = 0;
-        const MAX_STEPS: u32 = 100; // Prevent infinite loops
+    /// Execute the graph and return whether it completed or interrupted.
+    pub async fn invoke_outcome_with_config(
+        &self,
+        input: S,
+        config: GraphConfig,
+    ) -> GraphResult<InvokeOutcome<S>> {
+        let thread_id = config.thread_id.clone();
+        let mut stream = self.pregel_engine.execute(self, input, config).await?;
+        let mut last_state: Option<S> = None;
+        let mut interrupt_info: Option<InterruptInfo<S>> = None;
 
-        let mut current_nodes = self.entry_points.clone();
-
-        while !current_nodes.is_empty() && step < MAX_STEPS {
-            step += 1;
-            let mut next_nodes = Vec::new();
-
-            // Execute each current node
-            for node_name in &current_nodes {
-                if node_name == END {
-                    continue;
-                }
-
-                if let Some(node_spec) = self.nodes.get(node_name) {
-                    // Create execution context
-                    let mut context = ExecutionContext::new(node_name, "graph");
-                    context.step = step;
-
-                    // Execute the node function
-                    current_state = node_spec.function.call(current_state, context).await?;
-
-                    // Determine next nodes based on edges and conditional branches
-                    let mut found_next = false;
-
-                    // Check conditional branches first
-                    if let Some(branch) = self.branches.get(node_name) {
-                        let condition_result = (branch.condition)(&current_state)?;
-                        if branch.targets.contains(&condition_result) {
-                            if condition_result == END {
-                                return Ok(current_state);
-                            }
-                            next_nodes.push(condition_result);
-                            found_next = true;
-                        }
-                    }
-
-                    // Check direct edges if no conditional branch matched
-                    if !found_next {
-                        for edge in &self.edges {
-                            if edge.from == *node_name {
-                                if edge.to == END {
-                                    return Ok(current_state);
-                                }
-                                next_nodes.push(edge.to.clone());
-                            }
-                        }
-                    }
-                }
+        while let Some(event) = stream.next().await {
+            if let StreamEventData::State(state) = &event.data {
+                last_state = Some(state.clone());
             }
 
-            current_nodes = next_nodes;
+            match &event.event_type {
+                StreamEventType::GraphComplete => {
+                    let final_state = last_state.ok_or_else(|| {
+                        LangGraphError::runtime("Graph completed without final state")
+                    })?;
+                    return Ok(InvokeOutcome::Completed(final_state));
+                }
+                StreamEventType::GraphError => {
+                    return Err(LangGraphError::runtime("Graph execution failed"));
+                }
+                StreamEventType::Custom(name) if name == "interrupt" => {
+                    let (reason, next_nodes) = match &event.data {
+                        StreamEventData::Custom(value) => {
+                            let reason = value
+                                .get("reason")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("interrupted")
+                                .to_string();
+                            let next_nodes = value
+                                .get("nodes")
+                                .and_then(|v| v.as_array())
+                                .map(|nodes| {
+                                    nodes
+                                        .iter()
+                                        .filter_map(|node| node.as_str().map(str::to_string))
+                                        .collect::<Vec<_>>()
+                                })
+                                .unwrap_or_default();
+                            (reason, next_nodes)
+                        }
+                        _ => ("interrupted".to_string(), Vec::new()),
+                    };
+
+                    if let Some(state) = last_state.clone() {
+                        interrupt_info = Some(InterruptInfo {
+                            state,
+                            step: event.step,
+                            node: event.node.clone(),
+                            reason,
+                            next_nodes,
+                            thread_id: thread_id.clone(),
+                        });
+                    }
+                }
+                _ => {}
+            }
         }
 
-        if step >= MAX_STEPS {
-            return Err(LangGraphError::recursion_limit(MAX_STEPS as usize));
+        if let Some(interrupt) = interrupt_info {
+            return Ok(InvokeOutcome::Interrupted(interrupt));
         }
 
-        Ok(current_state)
+        Err(LangGraphError::runtime(
+            "Graph execution ended unexpectedly",
+        ))
+    }
+
+    /// Execute the graph and return whether it completed or interrupted.
+    pub async fn invoke_outcome(&self, input: S) -> GraphResult<InvokeOutcome<S>> {
+        let config = GraphConfig::default();
+        self.invoke_outcome_with_config(input, config).await
+    }
+
+    /// Resume a previously interrupted thread using its latest snapshot.
+    pub async fn resume_with_config(
+        &self,
+        thread_id: &str,
+        mut config: GraphConfig,
+    ) -> GraphResult<InvokeOutcome<S>> {
+        let snapshot = self
+            .get_state(thread_id)
+            .await?
+            .ok_or_else(|| LangGraphError::runtime("No state snapshot found for thread"))?;
+
+        config.thread_id = Some(thread_id.to_string());
+        if !snapshot.next_nodes.is_empty() {
+            config.resume_next_nodes = Some(snapshot.next_nodes.clone());
+        }
+
+        self.invoke_outcome_with_config(snapshot.state, config)
+            .await
+    }
+
+    /// Resume a previously interrupted thread using default configuration.
+    pub async fn resume(&self, thread_id: &str) -> GraphResult<InvokeOutcome<S>> {
+        let config = GraphConfig::new().with_thread_id(thread_id.to_string());
+        self.resume_with_config(thread_id, config).await
     }
     /// Stream graph execution events
     pub async fn stream(&self, input: S) -> GraphResult<impl Stream<Item = StreamEvent<S>> + '_> {
@@ -496,6 +562,16 @@ impl<S: GraphState> CompiledGraph<S> {
     /// Get graph metadata
     pub fn get_metadata(&self, key: &str) -> Option<&JsonValue> {
         self.metadata.get(key)
+    }
+
+    /// Get channel specification for a state key.
+    pub fn get_channel(&self, key: &str) -> Option<&ChannelSpec> {
+        self.channels.get(key)
+    }
+
+    /// List configured state channels.
+    pub fn list_channels(&self) -> Vec<&str> {
+        self.channels.keys().map(|s| s.as_str()).collect()
     }
 
     /// List all nodes

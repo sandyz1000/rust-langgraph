@@ -1,13 +1,25 @@
 //! Example: State model – sequencing nodes and inspecting metadata
 
-use langgraph_core::{StateGraph, GraphResult, ExecutionContext, START, END};
+use langgraph_core::{ExecutionContext, GraphResult, StateGraph, StateUpdate, END, START};
 use serde::{Serialize, Deserialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct State { a: i32, b: i32 }
 
-async fn add_a(mut s: State, _ctx: ExecutionContext) -> GraphResult<State> { s.a += 1; Ok(s) }
-async fn add_b(mut s: State, _ctx: ExecutionContext) -> GraphResult<State> { s.b += 2; Ok(s) }
+async fn add_a(mut s: State, _ctx: ExecutionContext) -> GraphResult<StateUpdate> {
+    s.a += 1;
+    let mut update = StateUpdate::new();
+    update.insert("a".to_string(), Value::from(s.a));
+    Ok(update)
+}
+
+async fn add_b(mut s: State, _ctx: ExecutionContext) -> GraphResult<StateUpdate> {
+    s.b += 2;
+    let mut update = StateUpdate::new();
+    update.insert("b".to_string(), Value::from(s.b));
+    Ok(update)
+}
 
 #[tokio::main]
 async fn main() -> GraphResult<()> {

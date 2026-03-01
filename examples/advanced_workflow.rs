@@ -2,8 +2,9 @@
 
 use rust_langgraph::prelude::*;
 use rust_langgraph::checkpoint::InMemoryCheckpointer;
-use langgraph_core::{StreamEventData, StreamMode};
+use langgraph_core::{StateUpdate, StreamEventData, StreamMode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 use futures::StreamExt;
 
@@ -21,26 +22,25 @@ struct WorkflowState {
 async fn analyze_request(
     state: WorkflowState,
     _context: ExecutionContext,
-) -> GraphResult<WorkflowState> {
+) -> GraphResult<StateUpdate> {
     println!("🔍 Analyzing request: {}", state.user_request);
     
     let analysis = format!("Analysis of '{}': This request requires careful processing", state.user_request);
     let approval_needed = state.user_request.to_lowercase().contains("important") || 
                          state.user_request.to_lowercase().contains("urgent");
     
-    Ok(WorkflowState {
-        analysis: Some(analysis),
-        approval_needed,
-        step_count: state.step_count + 1,
-        ..state
-    })
+    let mut update = StateUpdate::new();
+    update.insert("analysis".to_string(), Value::from(analysis));
+    update.insert("approval_needed".to_string(), Value::from(approval_needed));
+    update.insert("step_count".to_string(), Value::from(state.step_count + 1));
+    Ok(update)
 }
 
 // Human approval node (simulated)
 async fn human_approval(
     state: WorkflowState,
     _context: ExecutionContext,
-) -> GraphResult<WorkflowState> {
+) -> GraphResult<StateUpdate> {
     println!("⏸️  Requesting human approval for: {}", state.user_request);
     
     // In a real scenario, this would pause execution and wait for human input
@@ -53,18 +53,17 @@ async fn human_approval(
         println!("❌ Request rejected");
     }
     
-    Ok(WorkflowState {
-        approved,
-        step_count: state.step_count + 1,
-        ..state
-    })
+    let mut update = StateUpdate::new();
+    update.insert("approved".to_string(), Value::from(approved));
+    update.insert("step_count".to_string(), Value::from(state.step_count + 1));
+    Ok(update)
 }
 
 // Processing node
 async fn process_request(
     state: WorkflowState,
     _context: ExecutionContext,
-) -> GraphResult<WorkflowState> {
+) -> GraphResult<StateUpdate> {
     println!("⚙️  Processing approved request");
     
     let result = if state.approved {
@@ -73,11 +72,10 @@ async fn process_request(
         "Request was not approved and cannot be processed".to_string()
     };
     
-    Ok(WorkflowState {
-        result: Some(result),
-        step_count: state.step_count + 1,
-        ..state
-    })
+    let mut update = StateUpdate::new();
+    update.insert("result".to_string(), Value::from(result));
+    update.insert("step_count".to_string(), Value::from(state.step_count + 1));
+    Ok(update)
 }
 
 // Conditional routing functions
